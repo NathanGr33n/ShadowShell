@@ -1,0 +1,78 @@
+//! ShadowShell entry point: runs the interactive read-eval loop, reading
+//! one line at a time via `reedline`, parsing it into a command, and
+//! executing it until the user exits or sends EOF (Ctrl+D on an empty
+//! line). Full prompt theming/animation and multiline editing arrive in
+//! later phases; this is a minimal working core loop.
+
+mod builtins;
+mod executor;
+mod parser;
+
+use std::process::ExitCode;
+
+use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
+
+use executor::ExecutionOutcome;
+
+/// What the main loop should do after processing one line of input.
+enum LoopControl {
+    /// Keep reading input; carries the exit code to report via the prompt.
+    Continue(i32),
+    /// Stop the shell and exit the process with this code.
+    Exit(i32),
+}
+
+fn main() -> ExitCode {
+    let mut line_editor = Reedline::create();
+    let prompt = DefaultPrompt::new(
+        DefaultPromptSegment::WorkingDirectory,
+        DefaultPromptSegment::Empty,
+    );
+    let mut last_exit_code: i32 = 0;
+
+    loop {
+        match line_editor.read_line(&prompt) {
+            Ok(Signal::Success(line)) => match run_line(&line, last_exit_code) {
+                LoopControl::Continue(code) => last_exit_code = code,
+                LoopControl::Exit(code) => return to_exit_code(code),
+            },
+            // Ctrl+C cancels the current line; the shell keeps running.
+            Ok(Signal::CtrlC) => continue,
+            // Ctrl+D on an empty line signals EOF: end the session.
+            Ok(Signal::CtrlD) => break,
+            // Any other signal (host commands, external breaks) is not used
+            // by this minimal loop; ignore and keep reading.
+            Ok(_) => continue,
+            Err(err) => {
+                eprintln!("shadowshell: input error: {err}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
+    to_exit_code(last_exit_code)
+}
+
+/// Parses and executes one line of input, returning how the main loop
+/// should proceed. A blank line or a parse error does not change the
+/// previous exit code's continuation behavior beyond reporting it.
+fn run_line(line: &str, last_exit_code: i32) -> LoopControl {
+    match parser::parse_line(line) {
+        // Blank/whitespace-only input: nothing to run, exit code unchanged.
+        Ok(None) => LoopControl::Continue(last_exit_code),
+        Ok(Some(command)) => match executor::execute(&command) {
+            ExecutionOutcome::Completed(code) => LoopControl::Continue(code),
+            ExecutionOutcome::Exit(code) => LoopControl::Exit(code),
+        },
+        Err(err) => {
+            eprintln!("shadowshell: {err}");
+            LoopControl::Continue(2)
+        }
+    }
+}
+
+/// Converts a shell-style exit code to a process [`ExitCode`], wrapping
+/// into the 0-255 range the same way POSIX shells do.
+fn to_exit_code(code: i32) -> ExitCode {
+    ExitCode::from((code & 0xFF) as u8)
+}
