@@ -59,16 +59,15 @@ fn expand_tilde(path: &str) -> PathBuf {
 /// Only a bare `~` or a `~/...` prefix is expanded (POSIX behavior);
 /// `~` appearing mid-word is left untouched.
 fn expand_tilde_with_home(path: &str, home: Option<&Path>) -> PathBuf {
-    if let Some(rest) = path.strip_prefix('~') {
-        if rest.is_empty() || rest.starts_with('/') {
-            if let Some(home) = home {
-                let mut expanded = home.to_path_buf();
-                if let Some(stripped) = rest.strip_prefix('/') {
-                    expanded.push(stripped);
-                }
-                return expanded;
-            }
+    if let Some(rest) = path.strip_prefix('~')
+        && (rest.is_empty() || rest.starts_with('/'))
+        && let Some(home) = home
+    {
+        let mut expanded = home.to_path_buf();
+        if let Some(stripped) = rest.strip_prefix('/') {
+            expanded.push(stripped);
         }
+        return expanded;
     }
     PathBuf::from(path)
 }
