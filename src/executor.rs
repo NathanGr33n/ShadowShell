@@ -1,90 +1,133 @@
-//! Executes a parsed command: dispatches to a built-in if recognized,
-//! otherwise spawns an external process directly (never via a shell),
-//! so argument values can never be reinterpreted as shell syntax.
-
-use std::io::ErrorKind;
-use std::process::Command;
+//! Executes a parsed [`Pipeline`]: dispatches to a built-in when it is a
+//! single, non-backgrounded command with no redirects, otherwise runs it
+//! as a process-group pipeline via [`job_control::Shell`]. Built-ins are
+//! only meaningful in the shell's own process, so using one inside a
+//! multi-command pipeline or backgrounding one is reported as a clear,
+//! scoped error rather than silently attempting (and failing) to spawn
+//! it as an external program.
 
 use crate::builtins::{self, BuiltinOutcome};
-use crate::parser::ParsedCommand;
+use crate::job_control::Shell;
+use crate::parser::{Pipeline, SimpleCommand};
 
-/// Result of executing one parsed command line.
+/// Names of built-in commands, used to detect and reject unsupported
+/// combinations (pipelines, backgrounding) before attempting to spawn
+/// them as external programs.
+const BUILTIN_NAMES: [&str; 5] = ["cd", "exit", "jobs", "fg", "bg"];
+
+/// Result of executing one parsed pipeline.
 pub enum ExecutionOutcome {
-    /// The command ran (built-in or external); carries its exit code.
+    /// The pipeline ran; carries the exit code to report as `$?`.
     Completed(i32),
     /// The shell was asked to exit with this code.
     Exit(i32),
 }
 
-/// Executes `command`: dispatches to a built-in if recognized, otherwise
-/// spawns an external process, waits for it, and forwards its exit code.
-pub fn execute(command: &ParsedCommand) -> ExecutionOutcome {
-    if let Some(outcome) = builtins::try_run(&command.program, &command.args) {
-        return match outcome {
-            BuiltinOutcome::Ran(code) => ExecutionOutcome::Completed(code),
-            BuiltinOutcome::Exit(code) => ExecutionOutcome::Exit(code),
-        };
-    }
-
-    ExecutionOutcome::Completed(run_external(command))
-}
-
-/// Spawns `command` as a child process, inheriting the shell's stdio, and
-/// waits for it to finish. Returns the child's exit code, or 127 if the
-/// program could not be found or executed (matching common shell
-/// convention for "command not found").
-fn run_external(command: &ParsedCommand) -> i32 {
-    match Command::new(&command.program).args(&command.args).status() {
-        Ok(status) => status.code().unwrap_or(1),
-        Err(err) => {
-            eprintln!("{}: {}", command.program, describe_spawn_error(&err));
-            127
+/// Executes `pipeline` (parsed from `command_line`, which is kept for job
+/// listings and `fg`/`bg` display), using `shell` for job control.
+pub fn execute(pipeline: &Pipeline, shell: &mut Shell, command_line: &str) -> ExecutionOutcome {
+    if let Some(single) = single_builtin_candidate(pipeline) {
+        if !single.redirects.is_empty() {
+            eprintln!(
+                "shadowshell: {}: redirects on built-ins are not yet supported",
+                single.program
+            );
+            return ExecutionOutcome::Completed(1);
         }
+        if let Some(outcome) = builtins::try_run(&single.program, &single.args, shell) {
+            return match outcome {
+                BuiltinOutcome::Ran(code) => ExecutionOutcome::Completed(code),
+                BuiltinOutcome::Exit(code) => ExecutionOutcome::Exit(code),
+            };
+        }
+    } else if let Some(name) = builtin_used_unsupported(pipeline) {
+        eprintln!("shadowshell: {name}: built-ins cannot be used in a pipeline or backgrounded yet");
+        return ExecutionOutcome::Completed(1);
     }
+
+    // Not a built-in (or not one usable here): run as a real pipeline.
+    // Parser invariant: `pipeline.commands` always has at least one entry.
+    ExecutionOutcome::Completed(shell.run_pipeline(pipeline, command_line))
 }
 
-/// Translates a process-spawn I/O error into a user-facing message,
-/// special-casing the errors a shell user is most likely to hit.
-fn describe_spawn_error(err: &std::io::Error) -> String {
-    match err.kind() {
-        ErrorKind::NotFound => "command not found".to_string(),
-        ErrorKind::PermissionDenied => "permission denied".to_string(),
-        _ => err.to_string(),
+/// Returns the single command in `pipeline` when it is eligible for
+/// built-in dispatch: exactly one command and not backgrounded.
+fn single_builtin_candidate(pipeline: &Pipeline) -> Option<&SimpleCommand> {
+    if pipeline.background || pipeline.commands.len() != 1 {
+        return None;
     }
+    pipeline.commands.first()
+}
+
+/// If `pipeline` (already known not to be a plain single foreground
+/// command) uses a known built-in name anywhere, returns that name so the
+/// caller can report a clear, scoped error instead of silently searching
+/// for a same-named external program that would just fail.
+fn builtin_used_unsupported(pipeline: &Pipeline) -> Option<&str> {
+    pipeline
+        .commands
+        .iter()
+        .map(|c| c.program.as_str())
+        .find(|name| BUILTIN_NAMES.contains(name))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::parse_line;
 
-    fn cmd(program: &str, args: &[&str]) -> ParsedCommand {
-        ParsedCommand {
-            program: program.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-        }
+    fn run(line: &str) -> ExecutionOutcome {
+        let pipeline = parse_line(line).unwrap().unwrap();
+        let mut shell = Shell::for_test();
+        execute(&pipeline, &mut shell, line)
     }
 
     #[test]
     fn external_command_success_reports_zero() {
-        let outcome = execute(&cmd("true", &[]));
-        assert!(matches!(outcome, ExecutionOutcome::Completed(0)));
+        assert!(matches!(run("true"), ExecutionOutcome::Completed(0)));
     }
 
     #[test]
     fn external_command_failure_reports_nonzero() {
-        let outcome = execute(&cmd("false", &[]));
-        assert!(matches!(outcome, ExecutionOutcome::Completed(code) if code != 0));
+        assert!(matches!(run("false"), ExecutionOutcome::Completed(code) if code != 0));
     }
 
     #[test]
     fn missing_command_reports_127() {
-        let outcome = execute(&cmd("shadowshell-nonexistent-command", &[]));
-        assert!(matches!(outcome, ExecutionOutcome::Completed(127)));
+        assert!(matches!(
+            run("shadowshell-nonexistent-command"),
+            ExecutionOutcome::Completed(127)
+        ));
     }
 
     #[test]
     fn builtin_exit_is_dispatched() {
-        let outcome = execute(&cmd("exit", &["3"]));
-        assert!(matches!(outcome, ExecutionOutcome::Exit(3)));
+        assert!(matches!(run("exit 3"), ExecutionOutcome::Exit(3)));
+    }
+
+    #[test]
+    fn builtin_in_pipeline_is_a_clear_error() {
+        assert!(matches!(
+            run("cd /tmp | cat"),
+            ExecutionOutcome::Completed(1)
+        ));
+    }
+
+    #[test]
+    fn builtin_backgrounded_is_a_clear_error() {
+        assert!(matches!(run("cd /tmp &"), ExecutionOutcome::Completed(1)));
+    }
+
+    #[test]
+    fn builtin_with_redirect_is_a_clear_error() {
+        assert!(matches!(
+            run("exit 0 > /tmp/shadowshell-unused"),
+            ExecutionOutcome::Completed(1)
+        ));
+    }
+
+    #[test]
+    fn pipeline_of_external_commands_runs() {
+        assert!(matches!(run("true | true"), ExecutionOutcome::Completed(0)));
     }
 }
