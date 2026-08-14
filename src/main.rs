@@ -1,16 +1,17 @@
 //! ShadowShell entry point: runs the interactive read-eval loop, reading
-//! one line at a time via `reedline`, parsing it into a command, and
-//! executing it until the user exits or sends EOF (Ctrl+D on an empty
-//! line). Full prompt theming/animation and multiline editing arrive in
-//! later phases; this is a minimal working core loop.
+//! one line at a time via `reedline` (with persistent history and
+//! multiline continuation, see `line_editor`), parsing it into a command,
+//! and executing it until the user exits or sends EOF (Ctrl+D on an empty
+//! line). Full prompt theming/animation arrives in a later phase.
 
 mod builtins;
 mod executor;
+mod line_editor;
 mod parser;
 
 use std::process::ExitCode;
 
-use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
+use reedline::{DefaultPrompt, DefaultPromptSegment, Signal};
 
 use executor::ExecutionOutcome;
 
@@ -23,7 +24,7 @@ enum LoopControl {
 }
 
 fn main() -> ExitCode {
-    let mut line_editor = Reedline::create();
+    let mut line_editor = line_editor::build();
     let prompt = DefaultPrompt::new(
         DefaultPromptSegment::WorkingDirectory,
         DefaultPromptSegment::Empty,
