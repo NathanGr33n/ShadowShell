@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 crossterm = "0.29.0"
+nix = { version = "0.31.3", features = ["process", "signal", "term", "fs"] }
 reedline = "0.49.0"
