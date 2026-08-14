@@ -27,18 +27,20 @@ pub enum ExecutionOutcome {
 /// listings and `fg`/`bg` display), using `shell` for job control.
 pub fn execute(pipeline: &Pipeline, shell: &mut Shell, command_line: &str) -> ExecutionOutcome {
     if let Some(single) = single_builtin_candidate(pipeline) {
-        if !single.redirects.is_empty() {
-            eprintln!(
-                "shadowshell: {}: redirects on built-ins are not yet supported",
-                single.program
-            );
-            return ExecutionOutcome::Completed(1);
-        }
-        if let Some(outcome) = builtins::try_run(&single.program, &single.args, shell) {
-            return match outcome {
-                BuiltinOutcome::Ran(code) => ExecutionOutcome::Completed(code),
-                BuiltinOutcome::Exit(code) => ExecutionOutcome::Exit(code),
-            };
+        if is_builtin(&single.program) {
+            if !single.redirects.is_empty() {
+                eprintln!(
+                    "shadowshell: {}: redirects on built-ins are not yet supported",
+                    single.program
+                );
+                return ExecutionOutcome::Completed(1);
+            }
+            if let Some(outcome) = builtins::try_run(&single.program, &single.args, shell) {
+                return match outcome {
+                    BuiltinOutcome::Ran(code) => ExecutionOutcome::Completed(code),
+                    BuiltinOutcome::Exit(code) => ExecutionOutcome::Exit(code),
+                };
+            }
         }
     } else if let Some(name) = builtin_used_unsupported(pipeline) {
         eprintln!("shadowshell: {name}: built-ins cannot be used in a pipeline or backgrounded yet");
@@ -51,12 +53,20 @@ pub fn execute(pipeline: &Pipeline, shell: &mut Shell, command_line: &str) -> Ex
 }
 
 /// Returns the single command in `pipeline` when it is eligible for
-/// built-in dispatch: exactly one command and not backgrounded.
+/// built-in dispatch: exactly one command and not backgrounded. Whether
+/// that command's `program` is actually a built-in name is checked
+/// separately by [`is_builtin`], so plain external commands (e.g.
+/// `echo hi > out.txt`) fall through to normal pipeline execution.
 fn single_builtin_candidate(pipeline: &Pipeline) -> Option<&SimpleCommand> {
     if pipeline.background || pipeline.commands.len() != 1 {
         return None;
     }
     pipeline.commands.first()
+}
+
+/// Returns whether `name` is a recognized built-in command.
+fn is_builtin(name: &str) -> bool {
+    BUILTIN_NAMES.contains(&name)
 }
 
 /// If `pipeline` (already known not to be a plain single foreground
@@ -129,5 +139,20 @@ mod tests {
     #[test]
     fn pipeline_of_external_commands_runs() {
         assert!(matches!(run("true | true"), ExecutionOutcome::Completed(0)));
+    }
+
+    #[test]
+    fn external_command_with_redirect_runs_normally() {
+        // Regression test: a single non-builtin command with a redirect
+        // must NOT be caught by the built-in redirect guard.
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("shadowshell-executor-test-{}.txt", std::process::id()));
+        let line = format!("echo hi > {}", path.display());
+
+        assert!(matches!(run(&line), ExecutionOutcome::Completed(0)));
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, "hi\n");
+
+        let _ = std::fs::remove_file(&path);
     }
 }
