@@ -336,4 +336,89 @@ mod tests {
             GitLookup::Unavailable
         ));
     }
+
+    /// Builds a `ShellPrompt` with the given exit code and git state,
+    /// without going through `ShellPrompt::new` (which would spawn a real
+    /// git lookup thread for the current directory).
+    fn prompt_with(last_exit_code: i32, git: GitLookup) -> ShellPrompt {
+        ShellPrompt {
+            cwd_display: String::new(),
+            last_exit_code,
+            git: Arc::new(Mutex::new(git)),
+        }
+    }
+
+    // These tests assert on the literal ANSI SGR codes crossterm emits for
+    // `Color::Rgb`, rather than on visual appearance, since color
+    // perception isn't reliably verifiable and terminals may globally
+    // suppress color (e.g. `NO_COLOR`). `force_color_output(true)` ensures
+    // that ambient setting doesn't make these tests flaky.
+
+    #[test]
+    fn indicator_is_success_colored_on_exit_code_zero() {
+        crossterm::style::force_color_output(true);
+        let prompt = prompt_with(0, GitLookup::Unavailable);
+        let rendered = prompt.render_prompt_indicator(PromptEditMode::Default);
+        assert!(rendered.contains("38;2;152;195;121"), "got: {rendered:?}");
+        assert!(rendered.contains('❯'));
+    }
+
+    #[test]
+    fn indicator_is_failure_colored_on_nonzero_exit_code() {
+        crossterm::style::force_color_output(true);
+        let prompt = prompt_with(1, GitLookup::Unavailable);
+        let rendered = prompt.render_prompt_indicator(PromptEditMode::Default);
+        assert!(rendered.contains("38;2;224;108;117"), "got: {rendered:?}");
+    }
+
+    #[test]
+    fn left_prompt_uses_cwd_color() {
+        crossterm::style::force_color_output(true);
+        let prompt = prompt_with(0, GitLookup::Unavailable);
+        let rendered = prompt.render_prompt_left();
+        assert!(rendered.contains("38;2;97;175;239"), "got: {rendered:?}");
+    }
+
+    #[test]
+    fn git_segment_is_empty_when_unavailable() {
+        let state = Arc::new(Mutex::new(GitLookup::Unavailable));
+        assert_eq!(render_git_segment(&state), "");
+    }
+
+    #[test]
+    fn git_segment_shows_clean_branch_without_dirty_marker() {
+        crossterm::style::force_color_output(true);
+        let state = Arc::new(Mutex::new(GitLookup::Ready {
+            branch: "main".to_string(),
+            dirty: false,
+        }));
+        let rendered = render_git_segment(&state);
+        assert!(rendered.contains("main"));
+        assert!(!rendered.contains('*'));
+        assert!(rendered.contains("38;2;198;120;221"), "got: {rendered:?}");
+    }
+
+    #[test]
+    fn git_segment_shows_dirty_marker_and_color() {
+        crossterm::style::force_color_output(true);
+        let state = Arc::new(Mutex::new(GitLookup::Ready {
+            branch: "main".to_string(),
+            dirty: true,
+        }));
+        let rendered = render_git_segment(&state);
+        assert!(rendered.contains("main*"), "got: {rendered:?}");
+        assert!(rendered.contains("38;2;229;192;123"), "got: {rendered:?}");
+    }
+
+    #[test]
+    fn git_segment_shows_spinner_while_pending() {
+        let state = Arc::new(Mutex::new(GitLookup::Pending {
+            since: Instant::now(),
+        }));
+        let rendered = render_git_segment(&state);
+        assert!(
+            SPINNER_FRAMES.iter().any(|frame| rendered.contains(*frame)),
+            "got: {rendered:?}"
+        );
+    }
 }
