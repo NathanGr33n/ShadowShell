@@ -416,11 +416,15 @@ fn describe_spawn_error(err: &io::Error) -> String {
 }
 
 /// Best-effort termination of already-spawned pipeline members after a
-/// later stage failed to spawn, so a partially-started pipeline doesn't
-/// linger.
+/// later stage failed to spawn or set up redirects, so a partially-started
+/// pipeline doesn't linger. Also reaps each killed child so it doesn't sit
+/// around as a zombie for the rest of the shell's lifetime (these children
+/// were never registered in the job table, so nothing else will ever wait
+/// on them).
 fn kill_all(children: &mut [Child]) {
     for child in children {
         let _ = child.kill();
+        let _ = child.wait();
     }
 }
 
