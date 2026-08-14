@@ -3,8 +3,9 @@
 //! multiline continuation, see `line_editor`), parsing it into a
 //! pipeline, and executing it via `job_control::Shell` (process groups,
 //! terminal ownership, job tracking) until the user exits or sends EOF
-//! (Ctrl+D on an empty line). Full prompt theming/animation arrives in a
-//! later phase.
+//! (Ctrl+D on an empty line). The prompt (`prompt`) is rebuilt before each
+//! read so it reflects the current directory, previous exit code, and an
+//! asynchronously-refreshed git status.
 
 mod builtins;
 mod executor;
@@ -12,13 +13,15 @@ mod job_control;
 mod jobs;
 mod line_editor;
 mod parser;
+mod prompt;
 
 use std::process::ExitCode;
 
-use reedline::{DefaultPrompt, DefaultPromptSegment, Signal};
+use reedline::Signal;
 
 use executor::ExecutionOutcome;
 use job_control::Shell;
+use prompt::ShellPrompt;
 
 /// What the main loop should do after processing one line of input.
 enum LoopControl {
@@ -30,10 +33,6 @@ enum LoopControl {
 
 fn main() -> ExitCode {
     let mut line_editor = line_editor::build();
-    let prompt = DefaultPrompt::new(
-        DefaultPromptSegment::WorkingDirectory,
-        DefaultPromptSegment::Empty,
-    );
     let mut shell = Shell::new();
     let mut last_exit_code: i32 = 0;
 
@@ -41,6 +40,11 @@ fn main() -> ExitCode {
         // Report any background jobs that finished since the last prompt,
         // matching common shell notification timing.
         shell.notify_job_changes();
+
+        // Rebuilt fresh each time: the working directory may have changed
+        // (cd), the previous command's exit code determines the indicator
+        // color, and this kicks off a new asynchronous git status lookup.
+        let prompt = ShellPrompt::new(last_exit_code);
 
         match line_editor.read_line(&prompt) {
             Ok(Signal::Success(line)) => match run_line(&line, last_exit_code, &mut shell) {
