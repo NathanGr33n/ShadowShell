@@ -80,6 +80,10 @@ fn tokenize(line: &str) -> Result<Vec<String>, ParseError> {
                     // Inside double quotes, backslash only escapes
                     // characters that are otherwise special there.
                     match chars.next() {
+                        // A backslash-newline is a POSIX line continuation:
+                        // both characters are removed and the following
+                        // text is spliced directly onto the current word.
+                        Some('\n') => {}
                         Some(next @ ('"' | '\\' | '$' | '`')) => current.push(next),
                         Some(other) => {
                             current.push('\\');
@@ -108,9 +112,14 @@ fn tokenize(line: &str) -> Result<Vec<String>, ParseError> {
                 }
                 '\\' => {
                     // Outside quotes, backslash escapes the next character
-                    // literally, including whitespace.
+                    // literally, including whitespace. A backslash-newline
+                    // is instead a POSIX line continuation: both characters
+                    // are removed with nothing spliced in their place, which
+                    // lets multiline input (from the line editor's validator)
+                    // continue a word across physical lines.
                     in_word = true;
                     match chars.next() {
+                        Some('\n') => {}
                         Some(next) => current.push(next),
                         None => return Err(ParseError::TrailingBackslash),
                     }
@@ -179,5 +188,23 @@ mod tests {
     #[test]
     fn trailing_backslash_is_error() {
         assert_eq!(parse_line(r"echo \"), Err(ParseError::TrailingBackslash));
+    }
+
+    #[test]
+    fn backslash_newline_splices_words_outside_quotes() {
+        let cmd = parse_line("echo hi\\\nthere").unwrap().unwrap();
+        assert_eq!(cmd.args, vec!["hithere"]);
+    }
+
+    #[test]
+    fn backslash_newline_splices_words_inside_double_quotes() {
+        let cmd = parse_line("echo \"hi\\\nthere\"").unwrap().unwrap();
+        assert_eq!(cmd.args, vec!["hithere"]);
+    }
+
+    #[test]
+    fn single_quotes_preserve_embedded_newline() {
+        let cmd = parse_line("echo 'hello\nworld'").unwrap().unwrap();
+        assert_eq!(cmd.args, vec!["hello\nworld"]);
     }
 }
