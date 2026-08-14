@@ -1,9 +1,13 @@
 //! Built-in shell commands that must run in the shell's own process
 //! (rather than as a spawned child), because they mutate shell state
-//! such as the current working directory or terminate the shell itself.
+//! such as the current working directory, job table, or terminate the
+//! shell itself.
 
 use std::env;
 use std::path::{Path, PathBuf};
+
+use crate::job_control::Shell;
+use crate::jobs::JobStatus;
 
 /// Outcome of running a built-in command.
 pub enum BuiltinOutcome {
@@ -16,10 +20,13 @@ pub enum BuiltinOutcome {
 /// Attempts to run `program` as a built-in with `args`. Returns `None` if
 /// `program` is not a recognized built-in, so the caller can fall back to
 /// spawning an external process.
-pub fn try_run(program: &str, args: &[String]) -> Option<BuiltinOutcome> {
+pub fn try_run(program: &str, args: &[String], shell: &mut Shell) -> Option<BuiltinOutcome> {
     match program {
         "cd" => Some(BuiltinOutcome::Ran(run_cd(args))),
         "exit" => Some(BuiltinOutcome::Exit(run_exit(args))),
+        "jobs" => Some(BuiltinOutcome::Ran(run_jobs(shell))),
+        "fg" => Some(BuiltinOutcome::Ran(run_fg(args, shell))),
+        "bg" => Some(BuiltinOutcome::Ran(run_bg(args, shell))),
         _ => None,
     }
 }
@@ -88,6 +95,70 @@ fn run_exit(args: &[String]) -> i32 {
     }
 }
 
+/// Lists tracked jobs (running or stopped), bash-style.
+fn run_jobs(shell: &Shell) -> i32 {
+    for job in shell.jobs.list() {
+        let label = match job.status {
+            JobStatus::Running => "Running",
+            JobStatus::Stopped => "Stopped",
+            JobStatus::Done(_) => "Done",
+        };
+        println!("[{}]+  {label:<22} {}", job.id, job.command_line);
+    }
+    0
+}
+
+/// Parses an optional job-ID argument shared by `fg`/`bg`, accepting a
+/// bare number or a `%`-prefixed number (e.g. `1` or `%1`). Returns
+/// `Ok(None)` when no argument was given, meaning "the current job".
+fn parse_job_id(args: &[String]) -> Result<Option<u32>, String> {
+    match args.first() {
+        None => Ok(None),
+        Some(arg) => {
+            let digits = arg.strip_prefix('%').unwrap_or(arg);
+            digits
+                .parse::<u32>()
+                .map(Some)
+                .map_err(|_| format!("{arg}: no such job"))
+        }
+    }
+}
+
+/// Brings a background/stopped job to the foreground, waiting for it to
+/// finish or stop again.
+fn run_fg(args: &[String], shell: &mut Shell) -> i32 {
+    match parse_job_id(args) {
+        Ok(id) => match shell.resume_job(id, true) {
+            Ok(code) => code,
+            Err(err) => {
+                eprintln!("fg: {err}");
+                1
+            }
+        },
+        Err(err) => {
+            eprintln!("fg: {err}");
+            1
+        }
+    }
+}
+
+/// Resumes a stopped job in the background without waiting for it.
+fn run_bg(args: &[String], shell: &mut Shell) -> i32 {
+    match parse_job_id(args) {
+        Ok(id) => match shell.resume_job(id, false) {
+            Ok(code) => code,
+            Err(err) => {
+                eprintln!("bg: {err}");
+                1
+            }
+        },
+        Err(err) => {
+            eprintln!("bg: {err}");
+            1
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +207,25 @@ mod tests {
     #[test]
     fn exit_rejects_non_numeric_code() {
         assert_eq!(run_exit(&["abc".to_string()]), 1);
+    }
+
+    #[test]
+    fn parse_job_id_none_when_no_args() {
+        assert_eq!(parse_job_id(&[]), Ok(None));
+    }
+
+    #[test]
+    fn parse_job_id_accepts_bare_number() {
+        assert_eq!(parse_job_id(&["2".to_string()]), Ok(Some(2)));
+    }
+
+    #[test]
+    fn parse_job_id_accepts_percent_prefix() {
+        assert_eq!(parse_job_id(&["%2".to_string()]), Ok(Some(2)));
+    }
+
+    #[test]
+    fn parse_job_id_rejects_non_numeric() {
+        assert!(parse_job_id(&["abc".to_string()]).is_err());
     }
 }
