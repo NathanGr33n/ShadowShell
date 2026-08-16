@@ -4,16 +4,20 @@
 
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use nu_ansi_term::{Color as AnsiColor, Style as AnsiStyle};
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, DefaultHinter, EditCommand, Emacs, FileBackedHistory,
-    KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu,
+    default_emacs_keybindings, ColumnarMenu, DefaultHinter, EditCommand, Emacs, ExternalPrinter,
+    FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu,
     ValidationResult, Validator,
 };
 
 use crate::completer::ShellCompleter;
 use crate::config::Config;
 use crate::highlighter::ShellHighlighter;
+use crate::live_jobs::LiveJobs;
 use crate::parser;
 
 /// Name of the persistent history file, stored directly under `$HOME`.
@@ -33,9 +37,10 @@ impl Validator for ShellValidator {
 }
 
 /// Builds a `Reedline` editor from `config` (history size, feature toggles,
-/// theme colors). Falls back to in-memory history if the history file
-/// cannot be opened.
-pub fn build(config: &Config) -> Reedline {
+/// theme colors). When `live_jobs` is provided, installs an idle poll that
+/// reaps finished background jobs, prints Done notifications, and forces
+/// prompt repaints so the ambient spinner advances while the user is idle.
+pub fn build(config: &Config, live_jobs: Option<Arc<LiveJobs>>) -> Reedline {
     let mut editor = Reedline::create().with_validator(Box::new(ShellValidator));
 
     // History
@@ -103,7 +108,53 @@ pub fn build(config: &Config) -> Reedline {
             .with_edit_mode(Box::new(Emacs::new(keybindings)));
     }
 
+    if let Some(live_jobs) = live_jobs {
+        editor = attach_live_job_idle(editor, live_jobs);
+    }
+
     editor
+}
+
+/// Poll interval for spinner animation and background job reaping while the
+/// line editor is waiting for input.
+const LIVE_JOB_POLL_MS: u64 = 100;
+
+/// Invisible marker that forces reedline's external-printer path to repaint
+/// the prompt (advancing spinners) without printing visible text. Uses a
+/// carriage-return-only payload that `print_external_message` still treats
+/// as a non-empty message batch.
+const REPAINT_TICK: &str = "
+";
+
+fn attach_live_job_idle(editor: Reedline, live_jobs: Arc<LiveJobs>) -> Reedline {
+    let printer = ExternalPrinter::new(64);
+    let printer_for_idle = printer.clone();
+    let jobs = Arc::clone(&live_jobs);
+
+    editor
+        .with_external_printer(printer)
+        .with_poll_interval(Duration::from_millis(LIVE_JOB_POLL_MS))
+        .with_idle_callback(Box::new(move || {
+            // Reap finished background jobs and queue Done notifications.
+            let changed = jobs.poll_completions();
+            for finished in jobs.take_notifications() {
+                let label = if finished.code == 0 {
+                    "Done".to_string()
+                } else {
+                    format!("Exit {}", finished.code)
+                };
+                let line = format!(
+                    "[{}]+  {:<22} {}",
+                    finished.id, label, finished.command_line
+                );
+                let _ = printer_for_idle.print(line);
+            }
+            // While any job is still active, emit a silent tick so reedline
+            // repaints the prompt and the spinner advances.
+            if changed || !jobs.view().is_empty() {
+                let _ = printer_for_idle.print(REPAINT_TICK.to_string());
+            }
+        }))
 }
 
 fn history_file_path() -> Option<PathBuf> {

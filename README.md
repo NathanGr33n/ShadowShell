@@ -7,8 +7,10 @@ A modern Unix shell built from scratch in Rust.
 Phase 6 (polish): history-based autosuggestions, command-line syntax
 highlighting, tab completion (files/dirs and `$PATH` executables), and a TOML
 config/theme system (`~/.config/shadowshell/config.toml`) with built-in
-`onedark` and `nord` themes. Earlier phases cover the core loop, line editing,
-job control/pipelines, the animated prompt, and POSIX-style scripting.
+`onedark` and `nord` themes. A live job dashboard in the prompt shows an
+ambient spinner/badge for background and stopped jobs. Earlier phases cover
+the core loop, line editing, job control/pipelines, the animated prompt, and
+POSIX-style scripting.
 
 ## Build
 
@@ -29,6 +31,18 @@ Script:
 ```
 cargo run -- path/to/script.sh arg1 arg2
 ```
+
+## Live job dashboard
+
+When jobs are backgrounded (`cmd &`) or stopped (Ctrl+Z), the right side of
+the prompt shows an ambient indicator that updates while you type or idle:
+
+- one running job — spinner + truncated command (`⠋ sleep 30`)
+- multiple jobs — counts (`⠋×2 ⏸×1`)
+- stopped job — pause badge (`⏸ [1] vim`)
+
+Finished background jobs still print the usual `[n]+ Done …` line (including
+while the line editor is waiting for input).
 
 ## Default aliases
 
