@@ -9,6 +9,7 @@ mod completer;
 mod config;
 mod env;
 mod expand;
+mod help;
 mod highlighter;
 mod interpreter;
 mod job_control;
@@ -25,6 +26,7 @@ use std::process::ExitCode;
 
 use reedline::Signal;
 
+use config::FirstRun;
 use interpreter::{interpret, InterpretOutcome};
 use job_control::Shell;
 use prompt::ShellPrompt;
@@ -35,23 +37,90 @@ enum LoopControl {
     Exit(i32),
 }
 
+/// Parsed command-line invocation.
+enum Invocation {
+    Interactive,
+    Script { path: String, args: Vec<String> },
+    Command(String),
+    Help,
+    Version,
+    Welcome,
+}
+
 fn main() -> ExitCode {
-    let mut args = process_env::args().skip(1).collect::<Vec<_>>();
-    if let Some(script) = args.first().cloned() {
-        args.remove(0);
-        return run_script(&script, args);
+    let mut argv = process_env::args();
+    let bin = argv.next().unwrap_or_else(|| "shadowshell".into());
+    match parse_args(argv.collect()) {
+        Ok(Invocation::Help) => {
+            help::print_cli_help(cli_name(&bin));
+            ExitCode::SUCCESS
+        }
+        Ok(Invocation::Version) => {
+            println!("{} {}", cli_name(&bin), env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
+        Ok(Invocation::Welcome) => {
+            help::print_welcome();
+            ExitCode::SUCCESS
+        }
+        Ok(Invocation::Command(cmd)) => run_command_string(&cmd),
+        Ok(Invocation::Script { path, args }) => run_script(&path, args),
+        Ok(Invocation::Interactive) => run_interactive(),
+        Err(msg) => {
+            eprintln!("shadowshell: {msg}");
+            eprintln!("Try `{} --help` for usage.", cli_name(&bin));
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn cli_name(bin: &str) -> &str {
+    std::path::Path::new(bin)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("shadowshell")
+}
+
+fn parse_args(args: Vec<String>) -> Result<Invocation, String> {
+    if args.is_empty() {
+        return Ok(Invocation::Interactive);
     }
 
-    run_interactive()
+    let mut iter = args.into_iter();
+    let first = iter.next().unwrap();
+    match first.as_str() {
+        "-h" | "--help" => Ok(Invocation::Help),
+        "-V" | "--version" => Ok(Invocation::Version),
+        "--welcome" => Ok(Invocation::Welcome),
+        "-c" => {
+            let cmd = iter
+                .next()
+                .ok_or_else(|| "option requires an argument: -c".to_string())?;
+            if iter.next().is_some() {
+                return Err("unexpected arguments after -c COMMAND".into());
+            }
+            Ok(Invocation::Command(cmd))
+        }
+        s if s.starts_with('-') => Err(format!("unknown option: {s}")),
+        path => Ok(Invocation::Script {
+            path: path.to_string(),
+            args: iter.collect(),
+        }),
+    }
 }
 
 fn run_interactive() -> ExitCode {
+    let first_run = config::ensure_user_config();
+    if matches!(first_run, FirstRun::Fresh { .. }) {
+        help::print_welcome();
+        first_run.mark_welcome_shown();
+    }
+
     let config = config::load();
     let mut shell = Shell::new();
     let personality = std::sync::Arc::new(personality::PersonalityState::new(
         config.personality.clone(),
     ));
-    // Seed personality for the starting directory.
     apply_directory_personality(&mut shell, &personality);
 
     let mut line_editor = line_editor::build(
@@ -63,9 +132,7 @@ fn run_interactive() -> ExitCode {
 
     loop {
         shell.notify_job_changes();
-        // Keep dashboard in sync even if notify found nothing to reap.
         shell.sync_live_jobs();
-        // Ambient project tuning after cd / directory changes.
         apply_directory_personality(&mut shell, &personality);
 
         let theme = personality.effective_theme(&config.theme);
@@ -96,6 +163,23 @@ fn run_interactive() -> ExitCode {
 
     warn_about_active_jobs(&shell);
     to_exit_code(last_exit_code)
+}
+
+fn run_command_string(source: &str) -> ExitCode {
+    let mut shell = Shell::new();
+    match parser::parse_program(source) {
+        Ok(None) => ExitCode::SUCCESS,
+        Ok(Some(program)) => match interpret(&program, &mut shell) {
+            InterpretOutcome::Completed(code) | InterpretOutcome::Return(code) => {
+                to_exit_code(code)
+            }
+            InterpretOutcome::Exit(code) => to_exit_code(code),
+        },
+        Err(err) => {
+            eprintln!("shadowshell: {err}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 fn run_script(path: &str, positionals: Vec<String>) -> ExitCode {
@@ -175,6 +259,56 @@ fn apply_directory_personality(
 ) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let _changed = personality.update_for_cwd(&cwd);
-    // Always reconcile: cheap, and keeps aliases correct if user unalias'd.
     personality::reconcile_aliases(&mut shell.aliases, personality);
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn parse_help_flags() {
+        assert!(matches!(parse_args(vec!["--help".into()]).unwrap(), Invocation::Help));
+        assert!(matches!(parse_args(vec!["-h".into()]).unwrap(), Invocation::Help));
+    }
+
+    #[test]
+    fn parse_version() {
+        assert!(matches!(
+            parse_args(vec!["-V".into()]).unwrap(),
+            Invocation::Version
+        ));
+    }
+
+    #[test]
+    fn parse_command() {
+        match parse_args(vec!["-c".into(), "echo hi".into()]).unwrap() {
+            Invocation::Command(c) => assert_eq!(c, "echo hi"),
+            _ => panic!("expected Command"),
+        }
+    }
+
+    #[test]
+    fn parse_script_with_args() {
+        match parse_args(vec!["run.sh".into(), "a".into(), "b".into()]).unwrap() {
+            Invocation::Script { path, args } => {
+                assert_eq!(path, "run.sh");
+                assert_eq!(args, vec!["a", "b"]);
+            }
+            _ => panic!("expected Script"),
+        }
+    }
+
+    #[test]
+    fn parse_empty_is_interactive() {
+        assert!(matches!(
+            parse_args(vec![]).unwrap(),
+            Invocation::Interactive
+        ));
+    }
+
+    #[test]
+    fn parse_unknown_flag_errs() {
+        assert!(parse_args(vec!["--nope".into()]).is_err());
+    }
 }
