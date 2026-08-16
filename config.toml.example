@@ -1,0 +1,39 @@
+# ShadowShell configuration
+# Copy to: ~/.config/shadowshell/config.toml
+# (created automatically on first interactive run if missing)
+
+# Built-in themes: "onedark" | "nord"
+theme = "onedark"
+
+history_capacity = 1000
+autosuggestions = true
+syntax_highlighting = true
+tab_completion = true
+
+# Optional truecolor overrides (RGB 0–255)
+# [colors]
+# cwd = [97, 175, 239]
+# success = [152, 195, 121]
+# failure = [224, 108, 117]
+# git_clean = [198, 120, 221]
+# git_dirty = [229, 192, 123]
+# spinner = [92, 99, 112]
+# command_valid = [152, 195, 121]
+# command_unknown = [224, 108, 117]
+# string = [229, 192, 123]
+# operator = [86, 182, 194]
+# comment = [92, 99, 112]
+
+# Directory personality: accent colors & temp aliases by project type
+[personality]
+enabled = true
+
+# [personality.rust]
+# accent = [222, 163, 90]
+# aliases = { b = "cargo build --release" }
+
+# [personality.node]
+# accent = [120, 200, 120]
+
+# [personality.python]
+# accent = [75, 139, 190]
