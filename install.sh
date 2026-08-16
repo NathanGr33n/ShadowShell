@@ -69,19 +69,31 @@ info "Installed: $BINARY"
 "$BINARY" --version || true
 
 case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
+  *":$BIN_DIR:"*)
+    info "$BIN_DIR is already on PATH"
+    ;;
   *)
     warn "$BIN_DIR is not on your PATH"
-    printf '\nAdd this to your shell rc file:\n  export PATH="%s:\$PATH"\n\n' "$BIN_DIR"
+    cat <<EOF >&2
+
+Add one of these to your shell rc (~/.bashrc, ~/.zshrc, …), then open a new terminal:
+  export PATH="$BIN_DIR:\$PATH"
+
+Until then, run the full path:
+  $BINARY
+EOF
     ;;
 esac
 
 cat <<EOF
 
 Next steps:
-  shadowshell              # start the shell
+  shadowshell                 # start the shell (after PATH)
   shadowshell --help
-  shadowshell --welcome    # tips banner
+  shadowshell --welcome       # tips banner
+  shadowshell --theme nord    # try a theme for this session
+
+Prebuilt binaries (optional): GitHub Releases on v* tags.
 
 Optional — set as login shell (after PATH works):
   grep -qxF "$BINARY" /etc/shells || echo "$BINARY" | sudo tee -a /etc/shells
