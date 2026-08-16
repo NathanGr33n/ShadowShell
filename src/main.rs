@@ -16,6 +16,7 @@ mod jobs;
 mod line_editor;
 mod live_jobs;
 mod parser;
+mod personality;
 mod prompt;
 
 use std::env as process_env;
@@ -47,18 +48,32 @@ fn main() -> ExitCode {
 fn run_interactive() -> ExitCode {
     let config = config::load();
     let mut shell = Shell::new();
-    let mut line_editor =
-        line_editor::build(&config, Some(std::sync::Arc::clone(&shell.live_jobs)));
+    let personality = std::sync::Arc::new(personality::PersonalityState::new(
+        config.personality.clone(),
+    ));
+    // Seed personality for the starting directory.
+    apply_directory_personality(&mut shell, &personality);
+
+    let mut line_editor = line_editor::build(
+        &config,
+        Some(std::sync::Arc::clone(&shell.live_jobs)),
+        Some(std::sync::Arc::clone(&personality)),
+    );
     let mut last_exit_code: i32 = 0;
 
     loop {
         shell.notify_job_changes();
         // Keep dashboard in sync even if notify found nothing to reap.
         shell.sync_live_jobs();
+        // Ambient project tuning after cd / directory changes.
+        apply_directory_personality(&mut shell, &personality);
+
+        let theme = personality.effective_theme(&config.theme);
         let prompt = ShellPrompt::new(
             last_exit_code,
-            config.theme.clone(),
+            theme,
             std::sync::Arc::clone(&shell.live_jobs),
+            Some(std::sync::Arc::clone(&personality)),
         );
 
         match line_editor.read_line(&prompt) {
@@ -150,4 +165,16 @@ fn warn_about_active_jobs(shell: &Shell) {
 
 fn to_exit_code(code: i32) -> ExitCode {
     ExitCode::from((code & 0xFF) as u8)
+}
+
+/// Detect project type for the current directory and reconcile temporary
+/// personality aliases. Theme accent is applied when building the prompt.
+fn apply_directory_personality(
+    shell: &mut Shell,
+    personality: &personality::PersonalityState,
+) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let _changed = personality.update_for_cwd(&cwd);
+    // Always reconcile: cheap, and keeps aliases correct if user unalias'd.
+    personality::reconcile_aliases(&mut shell.aliases, personality);
 }
