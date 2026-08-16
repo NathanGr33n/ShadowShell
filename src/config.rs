@@ -19,6 +19,8 @@ pub struct Config {
 /// Named color theme used by the prompt and line highlighter.
 #[derive(Debug, Clone)]
 pub struct Theme {
+    /// Theme identifier (`onedark`, `nord`, …); kept for diagnostics/tests.
+    #[allow(dead_code)]
     pub name: String,
     pub cwd: Rgb,
     pub success: Rgb,
