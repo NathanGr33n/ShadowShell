@@ -7,9 +7,13 @@ the box.
 ## Quick start
 
 ```bash
-# From this repo
+# From this repo (installs to ~/.local/bin by default)
 ./install.sh
-# or: cargo install --path . --locked
+# or: cargo install --path . --locked   # → ~/.cargo/bin
+
+# If the install dir is not on PATH yet:
+export PATH="$HOME/.local/bin:$PATH"   # install.sh default
+# export PATH="$HOME/.cargo/bin:$PATH" # cargo install
 
 # Run
 shadowshell
@@ -30,6 +34,8 @@ Try inside the shell:
 ```bash
 shadowshell --help
 shadowshell --version
+shadowshell --welcome
+shadowshell --theme nord          # session-only theme preview
 shadowshell -c 'echo hi'
 shadowshell script.sh args...
 ```
@@ -37,7 +43,7 @@ shadowshell script.sh args...
 ### Optional: default shell
 
 ```bash
-# Ensure the binary is on your PATH (cargo install uses ~/.cargo/bin)
+# Ensure the binary is on your PATH (~/.local/bin or ~/.cargo/bin)
 which shadowshell
 
 # Add to valid login shells (once, system-wide)
@@ -55,6 +61,12 @@ cargo build --release
 # or
 cargo install --path . --locked
 ```
+
+### Prebuilt releases
+
+Pushing a `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds Linux (`x86_64`) and macOS (`x86_64`, `aarch64`) archives and attaches
+them to a GitHub Release with SHA-256 checksums.
 
 ## Configuration
 
@@ -76,6 +88,12 @@ enabled = true
 
 [personality.rust]
 accent = [222, 163, 90]
+```
+
+Preview a built-in theme without editing the file:
+
+```bash
+shadowshell --theme nord
 ```
 
 Malformed config falls back to defaults with a warning. In-shell: `help config`.
