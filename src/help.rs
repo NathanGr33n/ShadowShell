@@ -12,6 +12,16 @@ Welcome to ShadowShell — a modern dev shell with sensible defaults.
   sleep 3 &       background job → live badge in the prompt
   help            more topics (keys, config, jobs, …)
 
+Install / PATH
+  Prefer:  ./install.sh                 # puts binary in ~/.local/bin
+  Or:      cargo install --path . --locked
+  Then ensure the install dir is on PATH, e.g.:
+             export PATH=\"$HOME/.local/bin:$PATH\"
+  Prebuilt:  GitHub Releases (v* tags) for Linux/macOS archives
+
+Try a theme for this session only:
+  shadowshell --theme nord              # or onedark
+
 Config:  ~/.config/shadowshell/config.toml
 Replay:  shadowshell --welcome
 "
@@ -28,15 +38,18 @@ USAGE:
   {bin}                       Interactive shell
   {bin} SCRIPT [ARGS...]      Run a script file
   {bin} -c COMMAND            Run one command and exit
+  {bin} --theme NAME          Interactive theme override (onedark, nord)
   {bin} --welcome             Show the welcome banner and exit
   {bin} -h, --help            Show this help
   {bin} -V, --version         Show version
 
 EXAMPLES:
   {bin}
+  {bin} --theme nord
   {bin} ./deploy.sh staging
-  {bin} -c 'echo hi && ls'
+  {bin} -c 'echo hi'
 
+Install tips: ./install.sh  (or cargo install). Keep ~/.local/bin on PATH.
 Inside the shell, type  help  or  help <topic>.
 "
     );
@@ -194,6 +207,9 @@ Configuration
 
   [personality.rust]
   accent = [222, 163, 90]
+
+Session override (does not write config):
+  shadowshell --theme nord
 
 Malformed files fall back to defaults with a warning.
 See also:  help personality

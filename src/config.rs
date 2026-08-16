@@ -100,6 +100,18 @@ pub fn theme_nord() -> Theme {
     }
 }
 
+/// Built-in theme names accepted by config and `--theme`.
+pub const BUILTIN_THEME_NAMES: &[&str] = &["onedark", "nord"];
+
+/// Resolves a built-in theme by name (case-insensitive).
+pub fn theme_by_name(name: &str) -> Option<Theme> {
+    match name.to_ascii_lowercase().as_str() {
+        "onedark" => Some(theme_onedark()),
+        "nord" => Some(theme_nord()),
+        _ => None,
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -211,11 +223,10 @@ pub fn load_from_path(path: &Path) -> Config {
 
 fn merge_file(mut base: Config, file: FileConfig) -> Config {
     if let Some(name) = file.theme.as_deref() {
-        base.theme = match name {
-            "nord" => theme_nord(),
-            "onedark" => theme_onedark(),
-            other => {
-                eprintln!("shadowshell: warning: unknown theme `{other}`, using onedark");
+        base.theme = match theme_by_name(name) {
+            Some(theme) => theme,
+            None => {
+                eprintln!("shadowshell: warning: unknown theme `{name}`, using onedark");
                 theme_onedark()
             }
         };
@@ -452,5 +463,12 @@ mod tests {
         };
         let cfg = merge_file(Config::default(), file);
         assert_eq!(cfg.theme.name, "onedark");
+    }
+
+    #[test]
+    fn theme_by_name_is_case_insensitive() {
+        assert_eq!(theme_by_name("Nord").unwrap().name, "nord");
+        assert_eq!(theme_by_name("OneDark").unwrap().name, "onedark");
+        assert!(theme_by_name("missing").is_none());
     }
 }

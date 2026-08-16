@@ -13,7 +13,15 @@ In the shell, `help` and `help <topic>` cover the same ground interactively.
 cargo install --path . --locked
 ```
 
-Ensure `~/.cargo/bin` or `~/.local/bin` is on your `PATH`.
+`./install.sh` defaults to `~/.local/bin`. `cargo install` uses `~/.cargo/bin`.
+Ensure the install directory is on your `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+# or: export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+**Prebuilt binaries:** GitHub Releases on `v*` tags (Linux/macOS archives + checksums).
 
 **Run without installing:**
 
@@ -26,6 +34,7 @@ cargo run --release
 ```bash
 shadowshell                 # interactive
 shadowshell --welcome       # tips banner
+shadowshell --theme nord    # session-only theme (onedark, nord)
 shadowshell -c 'echo hi'    # one-shot command
 shadowshell script.sh a b   # run a script ($0=script, $1=a, $2=b)
 ```
@@ -103,6 +112,8 @@ enabled = true
 [personality.rust]
 accent = [222, 163, 90]
 ```
+
+Session override (does not write the file): `shadowshell --theme nord`.
 
 Malformed files fall back to defaults with a warning. See `help config`.
 
