@@ -145,12 +145,6 @@ pub struct Word {
 }
 
 impl Word {
-    pub fn literal(s: impl Into<String>) -> Self {
-        Word {
-            parts: vec![WordPart::Unquoted(s.into())],
-        }
-    }
-
     pub fn display_raw(&self) -> String {
         let mut out = String::new();
         for part in &self.parts {
@@ -161,15 +155,6 @@ impl Word {
             }
         }
         out
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.parts.is_empty()
-            || self.parts.iter().all(|p| match p {
-                WordPart::Unquoted(s) | WordPart::SingleQuoted(s) | WordPart::DoubleQuoted(s) => {
-                    s.is_empty()
-                }
-            })
     }
 }
 
@@ -191,6 +176,8 @@ pub enum ParseError {
     TrailingBackslash,
     EmptyPipelineSegment,
     MissingRedirectTarget,
+    /// Reserved for a stray `&` that is not a pipeline terminator.
+    #[allow(dead_code)]
     MisplacedBackground,
     Unexpected(String),
 }
@@ -272,6 +259,9 @@ pub fn parse_program(source: &str) -> Result<Option<Program>, ParseError> {
 }
 
 /// Compatibility: single simple pipeline → legacy [`Pipeline`].
+/// Used by job-control unit tests and any caller that still wants the
+/// Phase 3 stringly-typed pipeline shape.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_line(line: &str) -> Result<Option<Pipeline>, ParseError> {
     match parse_program(line)? {
         None => Ok(None),
@@ -279,6 +269,7 @@ pub fn parse_line(line: &str) -> Result<Option<Pipeline>, ParseError> {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn program_to_legacy(program: Program) -> Result<Pipeline, ParseError> {
     if program.lists.len() != 1 || !program.lists[0].rest.is_empty() {
         return Err(ParseError::Unexpected(
