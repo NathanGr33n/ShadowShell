@@ -24,6 +24,7 @@ use nix::sys::signal::{self, SigHandler, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{self, Pid};
 
+use crate::env::ShellEnv;
 use crate::jobs::{JobStatus, JobTable};
 use crate::parser::{Pipeline, Redirect, RedirectKind};
 
@@ -41,11 +42,12 @@ const JOB_CONTROL_SIGNALS: [Signal; 5] = [
     Signal::SIGTTOU,
 ];
 
-/// Owns the job table and the OS-level state needed for interactive job
-/// control: the shell's own process group and whether it is attached to a
-/// controlling terminal.
+/// Owns the job table, shell environment, and the OS-level state needed for
+/// interactive job control: the shell's own process group and whether it is
+/// attached to a controlling terminal.
 pub struct Shell {
     pub jobs: JobTable,
+    pub env: ShellEnv,
     pgid: Pid,
     interactive: bool,
 }
@@ -84,14 +86,22 @@ impl Shell {
 
         Shell {
             jobs: JobTable::new(),
+            env: ShellEnv::from_process_env("shadowshell"),
             pgid,
             interactive,
         }
     }
 
     /// Runs `pipeline` (the original `command_line` is kept for job-table
-    /// display). Returns the exit code to report as `$?`.
+    /// display). Returns the exit code to report as `$?` and updates the
+    /// shell environment's last status.
     pub fn run_pipeline(&mut self, pipeline: &Pipeline, command_line: &str) -> i32 {
+        let code = self.run_pipeline_inner(pipeline, command_line);
+        self.env.set_last_status(code);
+        code
+    }
+
+    fn run_pipeline_inner(&mut self, pipeline: &Pipeline, command_line: &str) -> i32 {
         let mut children: Vec<Child> = Vec::with_capacity(pipeline.commands.len());
         let mut pgid: Option<Pid> = None;
         let last_index = pipeline.commands.len().saturating_sub(1);
@@ -100,6 +110,10 @@ impl Shell {
         for (i, cmd) in pipeline.commands.iter().enumerate() {
             let mut command = Command::new(&cmd.program);
             command.args(&cmd.args);
+            // Replace the inherited process environment with the shell's
+            // exported variable set so `export`/`unset` affect children.
+            command.env_clear();
+            command.envs(self.env.child_env());
 
             if let Some(stdout) = prev_stdout.take() {
                 command.stdin(Stdio::from(stdout));
@@ -225,6 +239,7 @@ impl Shell {
             let _ = unistd::tcsetpgrp(io::stdin(), self.pgid);
         }
 
+        self.env.set_last_status(exit_code);
         Ok(exit_code)
     }
 
@@ -358,6 +373,7 @@ impl Shell {
     pub(crate) fn for_test() -> Self {
         Shell {
             jobs: JobTable::new(),
+            env: ShellEnv::from_process_env("shadowshell"),
             pgid: unistd::getpgrp(),
             interactive: false,
         }
@@ -524,7 +540,7 @@ mod tests {
         assert!(shell.resume_job(Some(999), true).is_err());
     }
 
-    #[test]
+#[test]
     fn missing_redirect_target_reports_error_without_spawning() {
         let dir = std::env::temp_dir();
         let missing = dir.join("shadowshell-test-does-not-exist-dir/out.txt");
@@ -533,5 +549,56 @@ mod tests {
         let mut shell = Shell::for_test();
         let code = shell.run_pipeline(&pipeline(&line), &line);
         assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn exported_shell_var_reaches_child_process() {
+        let mut shell = Shell::for_test();
+        shell
+            .env
+            .export("SHADOWSHELL_TEST_EXPORT", Some("from-shell".into()));
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "shadowshell-env-test-{}.txt",
+            std::process::id()
+        ));
+let line = format!(
+            "sh -c 'printf %s \"${{SHADOWSHELL_TEST_EXPORT}}\"' > {}",
+            path.display()
+        );
+
+        let code = shell.run_pipeline(&pipeline(&line), &line);
+        assert_eq!(code, 0);
+        assert_eq!(shell.env.last_status(), 0);
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, "from-shell");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn unexported_shell_var_does_not_reach_child_process() {
+        let mut shell = Shell::for_test();
+        // Ensure the name is not lingering as exported from the process env.
+        shell.env.unset("SHADOWSHELL_TEST_LOCAL");
+        shell.env.set("SHADOWSHELL_TEST_LOCAL", "secret");
+
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "shadowshell-env-local-{}.txt",
+            std::process::id()
+        ));
+let line = format!(
+            "sh -c 'printf %s \"${{SHADOWSHELL_TEST_LOCAL}}\"' > {}",
+            path.display()
+        );
+
+        let code = shell.run_pipeline(&pipeline(&line), &line);
+        assert_eq!(code, 0);
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(contents, "");
+        let _ = std::fs::remove_file(&path);
     }
 }
