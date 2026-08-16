@@ -921,9 +921,7 @@ impl Parser {
             match self.peek().cloned() {
                 Some(Token::Word(w)) => {
                     self.bump();
-                    if !saw_word
-                        && let Some((name, value)) = split_assignment(&w)
-                    {
+                    if !saw_word && let Some((name, value)) = split_assignment(&w) {
                         assignments.push(Assignment { name, value });
                         continue;
                     }

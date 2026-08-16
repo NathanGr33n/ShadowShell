@@ -361,7 +361,8 @@ fn run_builtin(name: &str, args: &[String], shell: &mut Shell) -> InterpretOutco
             Some(BuiltinOutcome::Ran(code)) => {
                 shell.env.set_last_status(code);
                 // Keep PWD in sync after cd.
-                if other == "cd" && code == 0
+                if other == "cd"
+                    && code == 0
                     && let Ok(cwd) = std::env::current_dir()
                 {
                     let cwd_s = cwd.display().to_string();
@@ -502,9 +503,7 @@ fn call_function(name: &str, args: &[String], shell: &mut Shell) -> InterpretOut
         .filter_map(|i| shell.env.positional(i).map(str::to_string))
         .collect();
 
-    shell
-        .env
-        .set_positionals(args.to_vec());
+    shell.env.set_positionals(args.to_vec());
     shell.function_depth += 1;
 
     let outcome = run_compound(&body, shell);
