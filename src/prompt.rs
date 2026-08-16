@@ -5,8 +5,7 @@
 //! the prompt or accepting keystrokes; while the lookup is still running,
 //! a spinner placeholder is shown instead. A full user-facing config/theme
 //! system arrives in a later phase — for now the segments and colors are
-//! fixed, but kept in separate small functions so they are easy to make
-//! configurable later.
+//! Colors come from the active [`crate::config::Theme`].
 
 use std::borrow::Cow;
 use std::env;
@@ -16,40 +15,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
-use crossterm::style::{Color, Stylize};
+use crossterm::style::Stylize;
 use reedline::{Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus};
 
-/// Truecolor palette for the prompt segments.
-const CWD_COLOR: Color = Color::Rgb {
-    r: 97,
-    g: 175,
-    b: 239,
-};
-const SUCCESS_COLOR: Color = Color::Rgb {
-    r: 152,
-    g: 195,
-    b: 121,
-};
-const FAILURE_COLOR: Color = Color::Rgb {
-    r: 224,
-    g: 108,
-    b: 117,
-};
-const GIT_CLEAN_COLOR: Color = Color::Rgb {
-    r: 198,
-    g: 120,
-    b: 221,
-};
-const GIT_DIRTY_COLOR: Color = Color::Rgb {
-    r: 229,
-    g: 192,
-    b: 123,
-};
-const SPINNER_COLOR: Color = Color::Rgb {
-    r: 92,
-    g: 99,
-    b: 112,
-};
+use crate::config::Theme;
 
 /// Braille spinner frames, cycled based on elapsed time while a git lookup
 /// is still pending.
@@ -65,6 +34,7 @@ pub struct ShellPrompt {
     cwd_display: String,
     last_exit_code: i32,
     git: Arc<Mutex<GitLookup>>,
+    theme: Theme,
 }
 
 /// State of the background git status lookup.
@@ -81,7 +51,7 @@ enum GitLookup {
 impl ShellPrompt {
     /// Builds a new prompt snapshot for the current directory, kicking off
     /// an asynchronous git status lookup that does not block this call.
-    pub fn new(last_exit_code: i32) -> Self {
+    pub fn new(last_exit_code: i32, theme: Theme) -> Self {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("?"));
         let home = env::var_os("HOME").map(PathBuf::from);
         let cwd_display = collapse_home(&cwd, home.as_deref());
@@ -91,24 +61,28 @@ impl ShellPrompt {
             cwd_display,
             last_exit_code,
             git,
+            theme,
         }
     }
 }
 
 impl Prompt for ShellPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
-        Cow::Owned(format!("{} ", self.cwd_display.as_str().with(CWD_COLOR)))
+        Cow::Owned(format!(
+            "{} ",
+            self.cwd_display.as_str().with(self.theme.cwd.to_crossterm())
+        ))
     }
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
-        Cow::Owned(render_git_segment(&self.git))
+        Cow::Owned(render_git_segment(&self.git, &self.theme))
     }
 
     fn render_prompt_indicator(&self, _prompt_mode: PromptEditMode) -> Cow<'_, str> {
         let color = if self.last_exit_code == 0 {
-            SUCCESS_COLOR
+            self.theme.success.to_crossterm()
         } else {
-            FAILURE_COLOR
+            self.theme.failure.to_crossterm()
         };
         Cow::Owned(format!("{} ", "❯".with(color).bold()))
     }
@@ -134,7 +108,7 @@ impl Prompt for ShellPrompt {
 
 /// Renders the right-hand git segment from the current lookup state
 /// without ever blocking on the background thread.
-fn render_git_segment(state: &Arc<Mutex<GitLookup>>) -> String {
+fn render_git_segment(state: &Arc<Mutex<GitLookup>>, theme: &Theme) -> String {
     let lookup = match state.lock() {
         Ok(guard) => guard,
         // A poisoned lock (the lookup thread panicked) still holds a
@@ -147,10 +121,17 @@ fn render_git_segment(state: &Arc<Mutex<GitLookup>>) -> String {
         GitLookup::Unavailable => String::new(),
         GitLookup::Pending { since } => {
             let frame = spinner_frame(since.elapsed().as_millis());
-            format!("{} ", frame.to_string().with(SPINNER_COLOR))
+            format!(
+                "{} ",
+                frame.to_string().with(theme.spinner.to_crossterm())
+            )
         }
         GitLookup::Ready { branch, dirty } => {
-            let color = if *dirty { GIT_DIRTY_COLOR } else { GIT_CLEAN_COLOR };
+            let color = if *dirty {
+                theme.git_dirty.to_crossterm()
+            } else {
+                theme.git_clean.to_crossterm()
+            };
             let marker = if *dirty { "*" } else { "" };
             format!("{} ", format!("{branch}{marker}").with(color))
         }
@@ -345,6 +326,7 @@ mod tests {
             cwd_display: String::new(),
             last_exit_code,
             git: Arc::new(Mutex::new(git)),
+            theme: crate::config::theme_onedark(),
         }
     }
 
@@ -382,7 +364,7 @@ mod tests {
     #[test]
     fn git_segment_is_empty_when_unavailable() {
         let state = Arc::new(Mutex::new(GitLookup::Unavailable));
-        assert_eq!(render_git_segment(&state), "");
+        assert_eq!(render_git_segment(&state, &crate::config::theme_onedark()), "");
     }
 
     #[test]
@@ -392,7 +374,7 @@ mod tests {
             branch: "main".to_string(),
             dirty: false,
         }));
-        let rendered = render_git_segment(&state);
+        let rendered = render_git_segment(&state, &crate::config::theme_onedark());
         assert!(rendered.contains("main"));
         assert!(!rendered.contains('*'));
         assert!(rendered.contains("38;2;198;120;221"), "got: {rendered:?}");
@@ -405,7 +387,7 @@ mod tests {
             branch: "main".to_string(),
             dirty: true,
         }));
-        let rendered = render_git_segment(&state);
+        let rendered = render_git_segment(&state, &crate::config::theme_onedark());
         assert!(rendered.contains("main*"), "got: {rendered:?}");
         assert!(rendered.contains("38;2;229;192;123"), "got: {rendered:?}");
     }
@@ -415,7 +397,7 @@ mod tests {
         let state = Arc::new(Mutex::new(GitLookup::Pending {
             since: Instant::now(),
         }));
-        let rendered = render_git_segment(&state);
+        let rendered = render_git_segment(&state, &crate::config::theme_onedark());
         assert!(
             SPINNER_FRAMES.iter().any(|frame| rendered.contains(*frame)),
             "got: {rendered:?}"

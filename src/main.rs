@@ -1,11 +1,15 @@
 //! ShadowShell entry point: interactive read-eval loop or script execution.
-//! Interactive mode uses `reedline` with persistent history and multiline
-//! continuation; scripts are read from a file path given on the command line.
+//! Interactive mode uses `reedline` with persistent history, autosuggestions,
+//! syntax highlighting, and tab completion; scripts are read from a file path
+//! given on the command line.
 
 mod builtins;
+mod completer;
+mod config;
 mod env;
 mod executor;
 mod expand;
+mod highlighter;
 mod interpreter;
 mod job_control;
 mod jobs;
@@ -40,13 +44,14 @@ fn main() -> ExitCode {
 }
 
 fn run_interactive() -> ExitCode {
-    let mut line_editor = line_editor::build();
+    let config = config::load();
+    let mut line_editor = line_editor::build(&config);
     let mut shell = Shell::new();
     let mut last_exit_code: i32 = 0;
 
     loop {
         shell.notify_job_changes();
-        let prompt = ShellPrompt::new(last_exit_code);
+        let prompt = ShellPrompt::new(last_exit_code, config.theme.clone());
 
         match line_editor.read_line(&prompt) {
             Ok(Signal::Success(line)) => match run_source(&line, last_exit_code, &mut shell) {
