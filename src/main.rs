@@ -95,48 +95,58 @@ fn parse_args(args: Vec<String>) -> Result<Invocation, String> {
 
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "-h" | "--help" => help = true,
-            "-V" | "--version" => version = true,
-            "--welcome" => welcome = true,
-            "-c" => {
-                let cmd = iter
-                    .next()
-                    .ok_or_else(|| "option requires an argument: -c".to_string())?;
-                if command.is_some() {
-                    return Err("multiple -c options".into());
-                }
-                command = Some(cmd);
-            }
-            "--theme" => {
-                let name = iter
-                    .next()
-                    .ok_or_else(|| "option requires an argument: --theme".to_string())?;
-                if theme.is_some() {
-                    return Err("multiple --theme options".into());
-                }
-                theme = Some(name);
-            }
-            s if s.starts_with("--theme=") => {
-                let name = s["--theme=".len()..].to_string();
-                if name.is_empty() {
-                    return Err("option requires an argument: --theme".into());
-                }
-                if theme.is_some() {
-                    return Err("multiple --theme options".into());
-                }
-                theme = Some(name);
-            }
-            s if s.starts_with('-') => return Err(format!("unknown option: {s}")),
-            path => {
-                if script.is_some() || command.is_some() {
-                    return Err("unexpected arguments".into());
-                }
-                let rest: Vec<String> = iter.collect();
-                script = Some((path, rest));
-                break;
-            }
+        if arg == "-h" || arg == "--help" {
+            help = true;
+            continue;
         }
+        if arg == "-V" || arg == "--version" {
+            version = true;
+            continue;
+        }
+        if arg == "--welcome" {
+            welcome = true;
+            continue;
+        }
+        if arg == "-c" {
+            let cmd = iter
+                .next()
+                .ok_or_else(|| "option requires an argument: -c".to_string())?;
+            if command.is_some() {
+                return Err("multiple -c options".into());
+            }
+            command = Some(cmd);
+            continue;
+        }
+        if arg == "--theme" {
+            let name = iter
+                .next()
+                .ok_or_else(|| "option requires an argument: --theme".to_string())?;
+            if theme.is_some() {
+                return Err("multiple --theme options".into());
+            }
+            theme = Some(name);
+            continue;
+        }
+        if let Some(name) = arg.strip_prefix("--theme=") {
+            if name.is_empty() {
+                return Err("option requires an argument: --theme".into());
+            }
+            if theme.is_some() {
+                return Err("multiple --theme options".into());
+            }
+            theme = Some(name.to_string());
+            continue;
+        }
+        if arg.starts_with('-') {
+            return Err(format!("unknown option: {arg}"));
+        }
+
+        if script.is_some() || command.is_some() {
+            return Err("unexpected arguments".into());
+        }
+        let rest: Vec<String> = iter.collect();
+        script = Some((arg, rest));
+        break;
     }
 
     let mode_count = usize::from(help)
