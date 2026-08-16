@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::personality::{PersonalityOverrides, ProjectKind};
+
 /// Fully resolved runtime configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -14,6 +16,7 @@ pub struct Config {
     pub autosuggestions: bool,
     pub syntax_highlighting: bool,
     pub tab_completion: bool,
+    pub personality: PersonalityOverrides,
 }
 
 /// Named color theme used by the prompt and line highlighter.
@@ -105,6 +108,7 @@ impl Default for Config {
             autosuggestions: true,
             syntax_highlighting: true,
             tab_completion: true,
+            personality: PersonalityOverrides::enabled_default(),
         }
     }
 }
@@ -125,6 +129,8 @@ struct FileConfig {
     tab_completion: Option<bool>,
     #[serde(default)]
     colors: Option<FileColors>,
+    #[serde(default)]
+    personality: Option<FilePersonality>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -140,6 +146,35 @@ struct FileColors {
     string: Option<[u8; 3]>,
     operator: Option<[u8; 3]>,
     comment: Option<[u8; 3]>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct FilePersonality {
+    /// Master switch; default true when section is absent (handled in merge).
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    rust: Option<FileKindPersonality>,
+    #[serde(default)]
+    node: Option<FileKindPersonality>,
+    #[serde(default)]
+    python: Option<FileKindPersonality>,
+    #[serde(default)]
+    go: Option<FileKindPersonality>,
+    #[serde(default)]
+    zig: Option<FileKindPersonality>,
+    #[serde(default)]
+    cmake: Option<FileKindPersonality>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct FileKindPersonality {
+    /// RGB accent override, e.g. `[222, 163, 90]`
+    #[serde(default)]
+    accent: Option<[u8; 3]>,
+    /// Extra / overriding aliases for this project type.
+    #[serde(default)]
+    aliases: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Loads config from the default path, or returns defaults.
@@ -202,7 +237,34 @@ fn merge_file(mut base: Config, file: FileConfig) -> Config {
     if let Some(c) = file.colors {
         apply_color_overrides(&mut base.theme, c);
     }
+    if let Some(p) = file.personality {
+        apply_personality_overrides(&mut base.personality, p);
+    }
     base
+}
+
+fn apply_personality_overrides(out: &mut PersonalityOverrides, file: FilePersonality) {
+    if let Some(en) = file.enabled {
+        out.enabled = en;
+    }
+    let kinds = [
+        (ProjectKind::Rust, file.rust),
+        (ProjectKind::Node, file.node),
+        (ProjectKind::Python, file.python),
+        (ProjectKind::Go, file.go),
+        (ProjectKind::Zig, file.zig),
+        (ProjectKind::CMake, file.cmake),
+    ];
+    for (kind, section) in kinds {
+        let Some(section) = section else { continue };
+        if let Some([r, g, b]) = section.accent {
+            out.accents.insert(kind, Rgb::new(r, g, b));
+        }
+        if let Some(aliases) = section.aliases {
+            let list: Vec<(String, String)> = aliases.into_iter().collect();
+            out.aliases.insert(kind, list);
+        }
+    }
 }
 
 fn apply_color_overrides(theme: &mut Theme, c: FileColors) {
