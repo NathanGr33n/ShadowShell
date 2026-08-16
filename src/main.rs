@@ -14,6 +14,7 @@ mod interpreter;
 mod job_control;
 mod jobs;
 mod line_editor;
+mod live_jobs;
 mod parser;
 mod prompt;
 
@@ -45,13 +46,20 @@ fn main() -> ExitCode {
 
 fn run_interactive() -> ExitCode {
     let config = config::load();
-    let mut line_editor = line_editor::build(&config);
     let mut shell = Shell::new();
+    let mut line_editor =
+        line_editor::build(&config, Some(std::sync::Arc::clone(&shell.live_jobs)));
     let mut last_exit_code: i32 = 0;
 
     loop {
         shell.notify_job_changes();
-        let prompt = ShellPrompt::new(last_exit_code, config.theme.clone());
+        // Keep dashboard in sync even if notify found nothing to reap.
+        shell.sync_live_jobs();
+        let prompt = ShellPrompt::new(
+            last_exit_code,
+            config.theme.clone(),
+            std::sync::Arc::clone(&shell.live_jobs),
+        );
 
         match line_editor.read_line(&prompt) {
             Ok(Signal::Success(line)) => match run_source(&line, last_exit_code, &mut shell) {
