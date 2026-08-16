@@ -3,6 +3,7 @@
 //! syntax highlighting, and tab completion; scripts are read from a file path
 //! given on the command line.
 
+mod aliases;
 mod builtins;
 mod completer;
 mod config;

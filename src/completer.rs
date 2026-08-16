@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use reedline::{Completer, Span, Suggestion};
 
+use crate::aliases;
+
 /// Completes command names (first word) from `$PATH` + built-ins, and path
 /// arguments from the filesystem. Unreadable directories yield no suggestions
 /// rather than errors.
@@ -20,21 +22,25 @@ impl Default for ShellCompleter {
 
 impl ShellCompleter {
     pub fn new() -> Self {
-        ShellCompleter {
-            builtins: vec![
-                "cd".into(),
-                "exit".into(),
-                "jobs".into(),
-                "fg".into(),
-                "bg".into(),
-                "export".into(),
-                "unset".into(),
-                "return".into(),
-                "shift".into(),
-                "true".into(),
-                "false".into(),
-            ],
+        let mut builtins = vec![
+            "cd".into(),
+            "exit".into(),
+            "jobs".into(),
+            "fg".into(),
+            "bg".into(),
+            "export".into(),
+            "unset".into(),
+            "return".into(),
+            "shift".into(),
+            "alias".into(),
+            "unalias".into(),
+            "true".into(),
+            "false".into(),
+        ];
+        for name in aliases::default_alias_names() {
+            builtins.push(name.to_string());
         }
+        ShellCompleter { builtins }
     }
 }
 

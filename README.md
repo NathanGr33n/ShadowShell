@@ -30,6 +30,28 @@ Script:
 cargo run -- path/to/script.sh arg1 arg2
 ```
 
+## Default aliases
+
+Developer-oriented shortcuts are enabled out of the box, including:
+
+| Alias | Expands to |
+|-------|------------|
+| `ll` | `ls -lah` |
+| `la` | `ls -A` |
+| `..` | `cd ..` |
+| `gs` / `ga` / `gc` / `gp` / `gl` | git status/add/commit/push/pull |
+| `cb` / `ct` / `cr` | cargo build/test/run |
+| `glog` | `git log --oneline --graph --decorate` |
+
+Manage them interactively:
+
+```
+alias                  # list all
+alias foo='echo hi'    # define / override
+unalias foo            # remove one
+unalias -a             # clear all
+```
+
 ## Config
 
 Optional file: `~/.config/shadowshell/config.toml`
