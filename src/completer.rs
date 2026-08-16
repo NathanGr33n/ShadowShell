@@ -3,15 +3,20 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
 use reedline::{Completer, Span, Suggestion};
 
 use crate::aliases;
+use crate::personality::PersonalityState;
 
 /// Completes command names (first word) from `$PATH` + built-ins, and path
 /// arguments from the filesystem. Unreadable directories yield no suggestions
-/// rather than errors.
+/// rather than errors. When a directory personality is active, its priority
+/// commands sort first.
 pub struct ShellCompleter {
     builtins: Vec<String>,
+    personality: Option<Arc<PersonalityState>>,
 }
 
 impl Default for ShellCompleter {
@@ -22,6 +27,10 @@ impl Default for ShellCompleter {
 
 impl ShellCompleter {
     pub fn new() -> Self {
+        Self::with_personality(None)
+    }
+
+    pub fn with_personality(personality: Option<Arc<PersonalityState>>) -> Self {
         let mut builtins = vec![
             "cd".into(),
             "exit".into(),
@@ -40,7 +49,10 @@ impl ShellCompleter {
         for name in aliases::default_alias_names() {
             builtins.push(name.to_string());
         }
-        ShellCompleter { builtins }
+        ShellCompleter {
+            builtins,
+            personality,
+        }
     }
 }
 
@@ -66,10 +78,26 @@ impl Completer for ShellCompleter {
             out = complete_paths(&token, span);
         }
 
-        out.sort_by(|a, b| a.value.cmp(&b.value));
+        let priority = self
+            .personality
+            .as_ref()
+            .map(|p| p.complete_priority())
+            .unwrap_or_default();
+        out.sort_by(|a, b| {
+            let pa = priority_rank(&a.value, &priority);
+            let pb = priority_rank(&b.value, &priority);
+            pa.cmp(&pb).then_with(|| a.value.cmp(&b.value))
+        });
         out.dedup_by(|a, b| a.value == b.value);
         out
     }
+}
+
+fn priority_rank(name: &str, priority: &[String]) -> usize {
+    priority
+        .iter()
+        .position(|p| p == name)
+        .unwrap_or(usize::MAX)
 }
 
 fn is_first_word(line: &str, token_start: usize) -> bool {
