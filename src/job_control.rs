@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::sync::Arc;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 
@@ -28,6 +29,7 @@ use nix::unistd::{self, Pid};
 use crate::aliases;
 use crate::env::ShellEnv;
 use crate::jobs::{JobStatus, JobTable};
+use crate::live_jobs::LiveJobs;
 use crate::parser::{CompoundCommand, Pipeline, Redirect, RedirectKind};
 
 /// Exit-code convention used when a foreground job is stopped (Ctrl+Z):
@@ -56,6 +58,8 @@ pub struct Shell {
     pub aliases: HashMap<String, String>,
     /// Nesting depth of active function calls (for `return`).
     pub function_depth: usize,
+    /// Live job dashboard shared with the interactive prompt.
+    pub live_jobs: Arc<LiveJobs>,
     pgid: Pid,
     interactive: bool,
 }
@@ -98,6 +102,7 @@ impl Shell {
             functions: HashMap::new(),
             aliases: aliases::default_alias_map(),
             function_depth: 0,
+            live_jobs: Arc::new(LiveJobs::new()),
             pgid,
             interactive,
         }
@@ -196,6 +201,7 @@ impl Shell {
 
         if pipeline.background {
             let id = self.jobs.add(pgid, pids, command_line.to_string());
+            self.sync_live_jobs();
             println!("[{id}] {pgid}");
             return 0;
         }
@@ -237,6 +243,7 @@ impl Shell {
 
         if !foreground {
             self.jobs.set_status_by_pgid(pgid, JobStatus::Running);
+            self.sync_live_jobs();
             return Ok(0);
         }
 
@@ -259,6 +266,15 @@ impl Shell {
     /// for any that finished. Intended to be called just before each new
     /// prompt.
     pub fn notify_job_changes(&mut self) {
+        // Drop jobs already reaped by the live-dashboard idle poll so we do
+        // not waitpid them a second time or double-print Done notices.
+        for id in self.live_jobs.take_finished_ids() {
+            if let Some(job) = self.jobs.get(id) {
+                let pgid = job.pgid;
+                self.jobs.remove_by_pgid(pgid);
+            }
+        }
+
         let running: Vec<(Pid, Vec<Pid>)> = self
             .jobs
             .list()
@@ -314,6 +330,12 @@ impl Shell {
                 println!("[{}]+  {label:<22} {}", job.id, job.command_line);
             }
         }
+        self.sync_live_jobs();
+    }
+
+    /// Pushes the current job table into the live dashboard the prompt reads.
+    pub fn sync_live_jobs(&self) {
+        self.live_jobs.sync_from_table(&self.jobs);
     }
 
     /// Waits for every process in `pgid` to finish, reporting the exit
@@ -343,6 +365,7 @@ impl Shell {
                 }
                 Ok(WaitStatus::Stopped(_, _)) => {
                     let id = self.record_stopped(pgid, pids.to_vec(), command_line);
+                    self.sync_live_jobs();
                     println!("\n[{id}]+  Stopped                 {command_line}");
                     return STOPPED_EXIT_CODE;
                 }
@@ -388,6 +411,7 @@ impl Shell {
             functions: HashMap::new(),
             aliases: aliases::default_alias_map(),
             function_depth: 0,
+            live_jobs: Arc::new(LiveJobs::new()),
             pgid: unistd::getpgrp(),
             interactive: false,
         }
