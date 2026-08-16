@@ -57,10 +57,7 @@ pub fn default_alias_names() -> impl Iterator<Item = &'static str> {
 /// Splits an alias value into words on ASCII whitespace.
 /// Defaults only use simple space-separated tokens (no quoting).
 pub fn split_alias_value(value: &str) -> Vec<String> {
-    value
-        .split_whitespace()
-        .map(str::to_string)
-        .collect()
+    value.split_whitespace().map(str::to_string).collect()
 }
 
 /// Whether `name` is a valid alias name. Allows letters, digits, `_`, `.`,
@@ -70,7 +67,10 @@ pub fn is_valid_alias_name(name: &str) -> bool {
         return false;
     }
     // Reject pure operators / shell metacharacters as alias names.
-    if name.chars().all(|c| matches!(c, '|' | '&' | ';' | '<' | '>' | '(' | ')' | '{' | '}')) {
+    if name
+        .chars()
+        .all(|c| matches!(c, '|' | '&' | ';' | '<' | '>' | '(' | ')' | '{' | '}'))
+    {
         return false;
     }
     name.chars()

@@ -82,7 +82,9 @@ impl Prompt for ShellPrompt {
     fn render_prompt_left(&self) -> Cow<'_, str> {
         Cow::Owned(format!(
             "{} ",
-            self.cwd_display.as_str().with(self.theme.cwd.to_crossterm())
+            self.cwd_display
+                .as_str()
+                .with(self.theme.cwd.to_crossterm())
         ))
     }
 
@@ -137,7 +139,6 @@ impl Prompt for ShellPrompt {
     }
 }
 
-
 fn render_personality_badge(badge: &str, theme: &Theme) -> String {
     if badge.is_empty() {
         return String::new();
@@ -170,7 +171,12 @@ fn render_jobs_segment(view: &JobDashboardView, theme: &Theme) -> String {
                 format!("{} {}", frame.to_string().with(pulse), cmd.with(pulse))
             }
             LiveJobStatus::Stopped => {
-                format!("{} [{}] {}", "⏸".with(stop_color), e.id, cmd.with(stop_color))
+                format!(
+                    "{} [{}] {}",
+                    "⏸".with(stop_color),
+                    e.id,
+                    cmd.with(stop_color)
+                )
             }
         };
     }
@@ -200,10 +206,7 @@ fn render_git_segment(state: &Arc<Mutex<GitLookup>>, theme: &Theme) -> String {
         GitLookup::Unavailable => String::new(),
         GitLookup::Pending { since } => {
             let frame = spinner_frame(since.elapsed().as_millis());
-            format!(
-                "{} ",
-                frame.to_string().with(theme.spinner.to_crossterm())
-            )
+            format!("{} ", frame.to_string().with(theme.spinner.to_crossterm()))
         }
         GitLookup::Ready { branch, dirty } => {
             let color = if *dirty {
@@ -252,7 +255,12 @@ fn query_git_status(cwd: &Path) -> GitLookup {
     // files just to render a prompt, so this never contends with a git
     // command the user is actually running.
     let output = Command::new("git")
-        .args(["--no-optional-locks", "status", "--porcelain=v1", "--branch"])
+        .args([
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v1",
+            "--branch",
+        ])
         .current_dir(cwd)
         .output();
 
@@ -307,7 +315,10 @@ mod tests {
     #[test]
     fn collapse_home_root_becomes_tilde() {
         assert_eq!(
-            collapse_home(Path::new("/home/testuser"), Some(Path::new("/home/testuser"))),
+            collapse_home(
+                Path::new("/home/testuser"),
+                Some(Path::new("/home/testuser"))
+            ),
             "~"
         );
     }
@@ -445,7 +456,10 @@ mod tests {
     #[test]
     fn git_segment_is_empty_when_unavailable() {
         let state = Arc::new(Mutex::new(GitLookup::Unavailable));
-        assert_eq!(render_git_segment(&state, &crate::config::theme_onedark()), "");
+        assert_eq!(
+            render_git_segment(&state, &crate::config::theme_onedark()),
+            ""
+        );
     }
 
     #[test]
@@ -491,7 +505,10 @@ mod tests {
             pulse_origin: Instant::now(),
             entries: vec![],
         };
-        assert_eq!(render_jobs_segment(&view, &crate::config::theme_onedark()), "");
+        assert_eq!(
+            render_jobs_segment(&view, &crate::config::theme_onedark()),
+            ""
+        );
     }
 
     #[test]

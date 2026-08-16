@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use nu_ansi_term::{Color as AnsiColor, Style as AnsiStyle};
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, DefaultHinter, EditCommand, Emacs, ExternalPrinter,
-    FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu,
-    ValidationResult, Validator,
+    ColumnarMenu, DefaultHinter, EditCommand, Emacs, ExternalPrinter, FileBackedHistory, KeyCode,
+    KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, ValidationResult, Validator,
+    default_emacs_keybindings,
 };
 
 use crate::completer::ShellCompleter;

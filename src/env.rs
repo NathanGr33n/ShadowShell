@@ -200,12 +200,7 @@ mod tests {
         let child: HashMap<_, _> = env
             .child_env()
             .into_iter()
-            .map(|(k, v)| {
-                (
-                    k.into_string().unwrap(),
-                    v.into_string().unwrap(),
-                )
-            })
+            .map(|(k, v)| (k.into_string().unwrap(), v.into_string().unwrap()))
             .collect();
         assert_eq!(child.get("EXPORTED").map(String::as_str), Some("2"));
         assert!(!child.contains_key("LOCAL"));
