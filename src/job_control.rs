@@ -15,6 +15,7 @@
 //! loop used by shells that might be launched directly as a background
 //! job of another shell; that scenario is rare and out of scope here.
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::process::CommandExt;
@@ -26,7 +27,7 @@ use nix::unistd::{self, Pid};
 
 use crate::env::ShellEnv;
 use crate::jobs::{JobStatus, JobTable};
-use crate::parser::{Pipeline, Redirect, RedirectKind};
+use crate::parser::{CompoundCommand, Pipeline, Redirect, RedirectKind};
 
 /// Exit-code convention used when a foreground job is stopped (Ctrl+Z):
 /// 128 + signal number, matching bash's `$?` convention.
@@ -48,6 +49,10 @@ const JOB_CONTROL_SIGNALS: [Signal; 5] = [
 pub struct Shell {
     pub jobs: JobTable,
     pub env: ShellEnv,
+    /// Shell functions defined at runtime (`name() { ... }`).
+    pub functions: HashMap<String, CompoundCommand>,
+    /// Nesting depth of active function calls (for `return`).
+    pub function_depth: usize,
     pgid: Pid,
     interactive: bool,
 }
@@ -87,6 +92,8 @@ impl Shell {
         Shell {
             jobs: JobTable::new(),
             env: ShellEnv::from_process_env("shadowshell"),
+            functions: HashMap::new(),
+            function_depth: 0,
             pgid,
             interactive,
         }
@@ -374,6 +381,8 @@ impl Shell {
         Shell {
             jobs: JobTable::new(),
             env: ShellEnv::from_process_env("shadowshell"),
+            functions: HashMap::new(),
+            function_depth: 0,
             pgid: unistd::getpgrp(),
             interactive: false,
         }
