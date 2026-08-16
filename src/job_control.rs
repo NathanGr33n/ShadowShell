@@ -25,6 +25,7 @@ use nix::sys::signal::{self, SigHandler, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{self, Pid};
 
+use crate::aliases;
 use crate::env::ShellEnv;
 use crate::jobs::{JobStatus, JobTable};
 use crate::parser::{CompoundCommand, Pipeline, Redirect, RedirectKind};
@@ -51,6 +52,8 @@ pub struct Shell {
     pub env: ShellEnv,
     /// Shell functions defined at runtime (`name() { ... }`).
     pub functions: HashMap<String, CompoundCommand>,
+    /// Command aliases (name → replacement words string).
+    pub aliases: HashMap<String, String>,
     /// Nesting depth of active function calls (for `return`).
     pub function_depth: usize,
     pgid: Pid,
@@ -93,6 +96,7 @@ impl Shell {
             jobs: JobTable::new(),
             env: ShellEnv::from_process_env("shadowshell"),
             functions: HashMap::new(),
+            aliases: aliases::default_alias_map(),
             function_depth: 0,
             pgid,
             interactive,
@@ -382,6 +386,7 @@ impl Shell {
             jobs: JobTable::new(),
             env: ShellEnv::from_process_env("shadowshell"),
             functions: HashMap::new(),
+            aliases: aliases::default_alias_map(),
             function_depth: 0,
             pgid: unistd::getpgrp(),
             interactive: false,
