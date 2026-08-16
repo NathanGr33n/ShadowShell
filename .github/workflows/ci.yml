@@ -44,6 +44,12 @@ jobs:
       - name: CLI smoke
         run: |
           ./target/release/shadowshell --version
-          ./target/release/shadowshell --help | head -5
+          ./target/release/shadowshell --help | head -8
+          ./target/release/shadowshell --welcome | head -5
           ./target/release/shadowshell -c 'true'
           ./target/release/shadowshell -c 'help' | head -3
+          # Unknown theme must fail before opening an interactive TTY.
+          if ./target/release/shadowshell --theme not-a-theme; then
+            echo "expected unknown --theme to fail" >&2
+            exit 1
+          fi
