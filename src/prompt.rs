@@ -4,8 +4,9 @@
 //! background thread so a slow or large repository never delays showing
 //! the prompt or accepting keystrokes; while the lookup is still running,
 //! a spinner placeholder is shown instead. A full user-facing config/theme
-//! system arrives in a later phase — for now the segments and colors are
-//! Colors come from the active [`crate::config::Theme`].
+//! Colors come from the active [`crate::config::Theme`]. An optional live job
+//! dashboard (spinner + compact job badge) appears when background/stopped
+//! jobs are active.
 
 use std::borrow::Cow;
 use std::env;
@@ -19,6 +20,7 @@ use crossterm::style::Stylize;
 use reedline::{Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus};
 
 use crate::config::Theme;
+use crate::live_jobs::{self, JobDashboardView, LiveJobStatus, LiveJobs};
 
 /// Braille spinner frames, cycled based on elapsed time while a git lookup
 /// is still pending.
@@ -35,6 +37,7 @@ pub struct ShellPrompt {
     last_exit_code: i32,
     git: Arc<Mutex<GitLookup>>,
     theme: Theme,
+    live_jobs: Arc<LiveJobs>,
 }
 
 /// State of the background git status lookup.
@@ -51,7 +54,7 @@ enum GitLookup {
 impl ShellPrompt {
     /// Builds a new prompt snapshot for the current directory, kicking off
     /// an asynchronous git status lookup that does not block this call.
-    pub fn new(last_exit_code: i32, theme: Theme) -> Self {
+    pub fn new(last_exit_code: i32, theme: Theme, live_jobs: Arc<LiveJobs>) -> Self {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("?"));
         let home = env::var_os("HOME").map(PathBuf::from);
         let cwd_display = collapse_home(&cwd, home.as_deref());
@@ -62,6 +65,7 @@ impl ShellPrompt {
             last_exit_code,
             git,
             theme,
+            live_jobs,
         }
     }
 }
@@ -75,7 +79,20 @@ impl Prompt for ShellPrompt {
     }
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
-        Cow::Owned(render_git_segment(&self.git, &self.theme))
+        let mut parts = Vec::new();
+        let jobs = render_jobs_segment(&self.live_jobs.view(), &self.theme);
+        if !jobs.is_empty() {
+            parts.push(jobs);
+        }
+        let git = render_git_segment(&self.git, &self.theme);
+        if !git.is_empty() {
+            parts.push(git.trim_end().to_string());
+        }
+        if parts.is_empty() {
+            Cow::Borrowed("")
+        } else {
+            Cow::Owned(format!("{} ", parts.join(" ")))
+        }
     }
 
     fn render_prompt_indicator(&self, _prompt_mode: PromptEditMode) -> Cow<'_, str> {
@@ -104,6 +121,47 @@ impl Prompt for ShellPrompt {
             history_search.term
         ))
     }
+}
+
+
+/// Compact ambient job dashboard for the right prompt.
+///
+/// Examples:
+/// - one running job:  `⠋ sleep 30 &`
+/// - several:          `⠋×2 ⏸×1`
+/// - only stopped:     `⏸ [1] vim`
+fn render_jobs_segment(view: &JobDashboardView, theme: &Theme) -> String {
+    if view.is_empty() {
+        return String::new();
+    }
+    let pulse = theme.spinner.to_crossterm();
+    let stop_color = theme.failure.to_crossterm();
+    let run = view.running_count();
+    let stop = view.stopped_count();
+    let frame = spinner_frame(view.pulse_origin.elapsed().as_millis());
+
+    // Prefer a short command snippet when there's a single job.
+    if view.entries.len() == 1 {
+        let e = &view.entries[0];
+        let cmd = live_jobs::truncate_cmd(&e.command_line, 18);
+        return match e.status {
+            LiveJobStatus::Running => {
+                format!("{} {}", frame.to_string().with(pulse), cmd.with(pulse))
+            }
+            LiveJobStatus::Stopped => {
+                format!("{} [{}] {}", "⏸".with(stop_color), e.id, cmd.with(stop_color))
+            }
+        };
+    }
+
+    let mut bits = Vec::new();
+    if run > 0 {
+        bits.push(format!("{}×{}", frame.to_string().with(pulse), run));
+    }
+    if stop > 0 {
+        bits.push(format!("{}×{}", "⏸".with(stop_color), stop));
+    }
+    bits.join(" ")
 }
 
 /// Renders the right-hand git segment from the current lookup state
@@ -327,6 +385,7 @@ mod tests {
             last_exit_code,
             git: Arc::new(Mutex::new(git)),
             theme: crate::config::theme_onedark(),
+            live_jobs: Arc::new(LiveJobs::new()),
         }
     }
 
@@ -402,5 +461,69 @@ mod tests {
             SPINNER_FRAMES.iter().any(|frame| rendered.contains(*frame)),
             "got: {rendered:?}"
         );
+    }
+
+    #[test]
+    fn jobs_segment_empty_when_no_jobs() {
+        let view = JobDashboardView {
+            pulse_origin: Instant::now(),
+            entries: vec![],
+        };
+        assert_eq!(render_jobs_segment(&view, &crate::config::theme_onedark()), "");
+    }
+
+    #[test]
+    fn jobs_segment_single_running_shows_spinner_and_cmd() {
+        crossterm::style::force_color_output(true);
+        let view = JobDashboardView {
+            pulse_origin: Instant::now(),
+            entries: vec![crate::live_jobs::LiveJobEntry {
+                id: 1,
+                pgid: 1,
+                pids: vec![1],
+                command_line: "sleep 30".into(),
+                status: LiveJobStatus::Running,
+            }],
+        };
+        let rendered = render_jobs_segment(&view, &crate::config::theme_onedark());
+        assert!(rendered.contains("sleep 30"), "got: {rendered:?}");
+        assert!(
+            SPINNER_FRAMES.iter().any(|f| rendered.contains(*f)),
+            "got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn jobs_segment_multi_uses_counts() {
+        let view = JobDashboardView {
+            pulse_origin: Instant::now(),
+            entries: vec![
+                crate::live_jobs::LiveJobEntry {
+                    id: 1,
+                    pgid: 1,
+                    pids: vec![1],
+                    command_line: "a".into(),
+                    status: LiveJobStatus::Running,
+                },
+                crate::live_jobs::LiveJobEntry {
+                    id: 2,
+                    pgid: 2,
+                    pids: vec![2],
+                    command_line: "b".into(),
+                    status: LiveJobStatus::Running,
+                },
+                crate::live_jobs::LiveJobEntry {
+                    id: 3,
+                    pgid: 3,
+                    pids: vec![3],
+                    command_line: "c".into(),
+                    status: LiveJobStatus::Stopped,
+                },
+            ],
+        };
+        let rendered = render_jobs_segment(&view, &crate::config::theme_onedark());
+        assert!(rendered.contains("×2"), "got: {rendered:?}");
+        assert!(rendered.contains("×1"), "got: {rendered:?}");
+        assert!(rendered.contains('⏸'), "got: {rendered:?}");
     }
 }
