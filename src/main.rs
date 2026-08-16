@@ -39,7 +39,7 @@ enum LoopControl {
 
 /// Parsed command-line invocation.
 enum Invocation {
-    Interactive,
+    Interactive { theme: Option<String> },
     Script { path: String, args: Vec<String> },
     Command(String),
     Help,
@@ -65,7 +65,7 @@ fn main() -> ExitCode {
         }
         Ok(Invocation::Command(cmd)) => run_command_string(&cmd),
         Ok(Invocation::Script { path, args }) => run_script(&path, args),
-        Ok(Invocation::Interactive) => run_interactive(),
+        Ok(Invocation::Interactive { theme }) => run_interactive(theme.as_deref()),
         Err(msg) => {
             eprintln!("shadowshell: {msg}");
             eprintln!("Try `{} --help` for usage.", cli_name(&bin));
@@ -83,40 +83,116 @@ fn cli_name(bin: &str) -> &str {
 
 fn parse_args(args: Vec<String>) -> Result<Invocation, String> {
     if args.is_empty() {
-        return Ok(Invocation::Interactive);
+        return Ok(Invocation::Interactive { theme: None });
     }
+
+    let mut theme: Option<String> = None;
+    let mut command: Option<String> = None;
+    let mut script: Option<(String, Vec<String>)> = None;
+    let mut help = false;
+    let mut version = false;
+    let mut welcome = false;
 
     let mut iter = args.into_iter();
-    let first = iter.next().unwrap();
-    match first.as_str() {
-        "-h" | "--help" => Ok(Invocation::Help),
-        "-V" | "--version" => Ok(Invocation::Version),
-        "--welcome" => Ok(Invocation::Welcome),
-        "-c" => {
-            let cmd = iter
-                .next()
-                .ok_or_else(|| "option requires an argument: -c".to_string())?;
-            if iter.next().is_some() {
-                return Err("unexpected arguments after -c COMMAND".into());
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "-h" | "--help" => help = true,
+            "-V" | "--version" => version = true,
+            "--welcome" => welcome = true,
+            "-c" => {
+                let cmd = iter
+                    .next()
+                    .ok_or_else(|| "option requires an argument: -c".to_string())?;
+                if command.is_some() {
+                    return Err("multiple -c options".into());
+                }
+                command = Some(cmd);
             }
-            Ok(Invocation::Command(cmd))
+            "--theme" => {
+                let name = iter
+                    .next()
+                    .ok_or_else(|| "option requires an argument: --theme".to_string())?;
+                if theme.is_some() {
+                    return Err("multiple --theme options".into());
+                }
+                theme = Some(name);
+            }
+            s if s.starts_with("--theme=") => {
+                let name = s["--theme=".len()..].to_string();
+                if name.is_empty() {
+                    return Err("option requires an argument: --theme".into());
+                }
+                if theme.is_some() {
+                    return Err("multiple --theme options".into());
+                }
+                theme = Some(name);
+            }
+            s if s.starts_with('-') => return Err(format!("unknown option: {s}")),
+            path => {
+                if script.is_some() || command.is_some() {
+                    return Err("unexpected arguments".into());
+                }
+                let rest: Vec<String> = iter.collect();
+                script = Some((path, rest));
+                break;
+            }
         }
-        s if s.starts_with('-') => Err(format!("unknown option: {s}")),
-        path => Ok(Invocation::Script {
-            path: path.to_string(),
-            args: iter.collect(),
-        }),
     }
+
+    let mode_count = usize::from(help)
+        + usize::from(version)
+        + usize::from(welcome)
+        + usize::from(command.is_some())
+        + usize::from(script.is_some());
+    if mode_count > 1 {
+        return Err("conflicting options".into());
+    }
+
+    if help {
+        return Ok(Invocation::Help);
+    }
+    if version {
+        return Ok(Invocation::Version);
+    }
+    if welcome {
+        return Ok(Invocation::Welcome);
+    }
+    if let Some(cmd) = command {
+        if theme.is_some() {
+            return Err("--theme only applies to interactive sessions".into());
+        }
+        return Ok(Invocation::Command(cmd));
+    }
+    if let Some((path, args)) = script {
+        if theme.is_some() {
+            return Err("--theme only applies to interactive sessions".into());
+        }
+        return Ok(Invocation::Script { path, args });
+    }
+
+    Ok(Invocation::Interactive { theme })
 }
 
-fn run_interactive() -> ExitCode {
+fn run_interactive(theme_override: Option<&str>) -> ExitCode {
     let first_run = config::ensure_user_config();
     if matches!(first_run, FirstRun::Fresh { .. }) {
         help::print_welcome();
         first_run.mark_welcome_shown();
     }
 
-    let config = config::load();
+    let mut config = config::load();
+    if let Some(name) = theme_override {
+        match config::theme_by_name(name) {
+            Some(theme) => config.theme = theme,
+            None => {
+                eprintln!(
+                    "shadowshell: unknown theme `{name}` (try: {})",
+                    config::BUILTIN_THEME_NAMES.join(", ")
+                );
+                return ExitCode::from(2);
+            }
+        }
+    }
     let mut shell = Shell::new();
     let personality = std::sync::Arc::new(personality::PersonalityState::new(
         config.personality.clone(),
@@ -306,8 +382,25 @@ mod cli_tests {
     fn parse_empty_is_interactive() {
         assert!(matches!(
             parse_args(vec![]).unwrap(),
-            Invocation::Interactive
+            Invocation::Interactive { theme: None }
         ));
+    }
+
+    #[test]
+    fn parse_theme_flag() {
+        match parse_args(vec!["--theme".into(), "nord".into()]).unwrap() {
+            Invocation::Interactive { theme: Some(t) } => assert_eq!(t, "nord"),
+            _ => panic!("expected Interactive with theme"),
+        }
+        match parse_args(vec!["--theme=onedark".into()]).unwrap() {
+            Invocation::Interactive { theme: Some(t) } => assert_eq!(t, "onedark"),
+            _ => panic!("expected Interactive with theme"),
+        }
+    }
+
+    #[test]
+    fn parse_theme_with_script_errs() {
+        assert!(parse_args(vec!["--theme".into(), "nord".into(), "x.sh".into()]).is_err());
     }
 
     #[test]
