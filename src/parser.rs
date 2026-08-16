@@ -471,9 +471,30 @@ fn tokenize(source: &str) -> Result<Vec<Token>, ParseError> {
                 });
             }
             '(' => {
-                chars.next();
-                flush_word(&mut tokens, &mut word_parts, &mut unquoted);
-                tokens.push(Token::LParen);
+                // `$(...)` command substitution stays inside the word.
+                if unquoted.ends_with('$') {
+                    chars.next();
+                    unquoted.push('(');
+                    let mut depth = 1;
+                    while depth > 0 {
+                        match chars.next() {
+                            Some('(') => {
+                                depth += 1;
+                                unquoted.push('(');
+                            }
+                            Some(')') => {
+                                depth -= 1;
+                                unquoted.push(')');
+                            }
+                            Some(ch) => unquoted.push(ch),
+                            None => break, // expander / later parse handles imbalance
+                        }
+                    }
+                } else {
+                    chars.next();
+                    flush_word(&mut tokens, &mut word_parts, &mut unquoted);
+                    tokens.push(Token::LParen);
+                }
             }
             ')' => {
                 chars.next();
@@ -561,7 +582,15 @@ fn parse_program(&mut self) -> Result<Program, ParseError> {
             }
             lists.push(self.parse_and_or()?);
             match self.peek() {
-                Some(Token::Semi | Token::Newline) => {
+                Some(Token::Semi) => {
+                    // `;;` terminates a case arm — leave both tokens for the caller.
+                    if matches!(self.tokens.get(self.pos + 1), Some(Token::Semi)) {
+                        break;
+                    }
+                    self.bump();
+                    self.skip_newlines();
+                }
+                Some(Token::Newline) => {
                     self.bump();
                     self.skip_newlines();
                 }
