@@ -44,6 +44,8 @@ impl ShellCompleter {
             "alias".into(),
             "unalias".into(),
             "help".into(),
+            "which".into(),
+            "type".into(),
             "true".into(),
             "false".into(),
         ];
@@ -61,7 +63,9 @@ impl Completer for ShellCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
         let pos = pos.min(line.len());
         let (token, span) = current_token(line, pos);
-        if token.is_empty() && !line[..pos].is_empty() && !line[..pos].ends_with(char::is_whitespace)
+        if token.is_empty()
+            && !line[..pos].is_empty()
+            && !line[..pos].ends_with(char::is_whitespace)
         {
             // Mid-token edge: nothing to complete.
         }
@@ -102,9 +106,7 @@ fn priority_rank(name: &str, priority: &[String]) -> usize {
 }
 
 fn is_first_word(line: &str, token_start: usize) -> bool {
-    line[..token_start]
-        .chars()
-        .all(|c| c.is_whitespace())
+    line[..token_start].chars().all(|c| c.is_whitespace())
 }
 
 /// Returns the token under/just before `pos` and its byte span in `line`.
@@ -233,10 +235,10 @@ fn expand_tilde(token: &str) -> String {
     if token == "~" {
         return std::env::var("HOME").unwrap_or_else(|_| ".".into());
     }
-    if let Some(rest) = token.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return format!("{home}/{rest}");
-        }
+    if let Some(rest) = token.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return format!("{home}/{rest}");
     }
     token.to_string()
 }

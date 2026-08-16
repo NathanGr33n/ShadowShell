@@ -77,6 +77,10 @@ pub fn run_help(args: &[String]) -> i32 {
             print_welcome();
             0
         }
+        Some("finding" | "which" | "type" | "commands") => {
+            print_topic_finding();
+            0
+        }
         Some(other) => {
             eprintln!("help: unknown topic `{other}`");
             eprintln!("Try: help  (lists topics)");
@@ -98,8 +102,9 @@ Topics:
   help personality   Project-aware colors & aliases
   help scripting     Scripts and non-interactive use
   help welcome       First-run banner
+  help finding       which / type / did-you-mean
 
-Also:  alias   jobs   fg   bg   export   exit
+Also:  alias   which   type   jobs   fg   bg   export   exit
 "
     );
 }
@@ -218,6 +223,25 @@ Effects:
   • tab-completion priority for project tools
 
 Disable or customize under [personality] in config.toml.
+"
+    );
+}
+
+fn print_topic_finding() {
+    println!(
+        "\
+Finding commands
+
+  which name          Resolve builtin, alias, function, or PATH
+  type name            Same, with slightly more detail
+
+If a command is not found, ShadowShell may suggest close matches:
+  prefix matches and small typos (edit distance ≤ 2), up to three names.
+
+Examples:
+  which ls
+  type gs
+  which cargo
 "
     );
 }
