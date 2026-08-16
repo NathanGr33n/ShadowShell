@@ -8,6 +8,7 @@
 //! asynchronously-refreshed git status.
 
 mod builtins;
+mod env;
 mod executor;
 mod job_control;
 mod jobs;
