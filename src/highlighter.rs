@@ -9,11 +9,12 @@ use std::sync::Mutex;
 use nu_ansi_term::Style;
 use reedline::{Highlighter, StyledText};
 
+use crate::aliases;
 use crate::config::Theme;
 
 /// Built-in command names highlighted as valid even without a PATH entry.
 const BUILTINS: &[&str] = &[
-    "cd", "exit", "jobs", "fg", "bg", "export", "unset", "return", "shift", ":", "true", "false",
+    "cd", "exit", "jobs", "fg", "bg", "export", "unset", "return", "shift", "alias", "unalias", ":", "true", "false",
 ];
 
 /// Highlights buffer text using the active theme and a cached PATH index.
@@ -41,6 +42,9 @@ impl ShellHighlighter {
 
     fn is_valid_command(&self, name: &str) -> bool {
         if BUILTINS.contains(&name) {
+            return true;
+        }
+        if aliases::default_alias_names().any(|a| a == name) {
             return true;
         }
         // Absolute/relative path: valid if the file exists and is executable-ish.
