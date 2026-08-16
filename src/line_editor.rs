@@ -19,6 +19,7 @@ use crate::config::Config;
 use crate::highlighter::ShellHighlighter;
 use crate::live_jobs::LiveJobs;
 use crate::parser;
+use crate::personality::PersonalityState;
 
 /// Name of the persistent history file, stored directly under `$HOME`.
 const HISTORY_FILE_NAME: &str = ".shadowshell_history";
@@ -40,7 +41,11 @@ impl Validator for ShellValidator {
 /// theme colors). When `live_jobs` is provided, installs an idle poll that
 /// reaps finished background jobs, prints Done notifications, and forces
 /// prompt repaints so the ambient spinner advances while the user is idle.
-pub fn build(config: &Config, live_jobs: Option<Arc<LiveJobs>>) -> Reedline {
+pub fn build(
+    config: &Config,
+    live_jobs: Option<Arc<LiveJobs>>,
+    personality: Option<Arc<PersonalityState>>,
+) -> Reedline {
     let mut editor = Reedline::create().with_validator(Box::new(ShellValidator));
 
     // History
@@ -75,7 +80,7 @@ pub fn build(config: &Config, live_jobs: Option<Arc<LiveJobs>>) -> Reedline {
 
     // Tab completion + columnar menu + Tab keybinding
     if config.tab_completion {
-        let completer = ShellCompleter::new();
+        let completer = ShellCompleter::with_personality(personality);
         let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
         let mut keybindings = default_emacs_keybindings();
         keybindings.add_binding(
@@ -123,9 +128,6 @@ const LIVE_JOB_POLL_MS: u64 = 100;
 /// the prompt (advancing spinners) without printing visible text. Uses a
 /// carriage-return-only payload that `print_external_message` still treats
 /// as a non-empty message batch.
-const REPAINT_TICK: &str = "
-";
-
 fn attach_live_job_idle(editor: Reedline, live_jobs: Arc<LiveJobs>) -> Reedline {
     let printer = ExternalPrinter::new(64);
     let printer_for_idle = printer.clone();
@@ -136,7 +138,7 @@ fn attach_live_job_idle(editor: Reedline, live_jobs: Arc<LiveJobs>) -> Reedline 
         .with_poll_interval(Duration::from_millis(LIVE_JOB_POLL_MS))
         .with_idle_callback(Box::new(move || {
             // Reap finished background jobs and queue Done notifications.
-            let changed = jobs.poll_completions();
+            let _changed = jobs.poll_completions();
             for finished in jobs.take_notifications() {
                 let label = if finished.code == 0 {
                     "Done".to_string()
@@ -148,11 +150,6 @@ fn attach_live_job_idle(editor: Reedline, live_jobs: Arc<LiveJobs>) -> Reedline 
                     finished.id, label, finished.command_line
                 );
                 let _ = printer_for_idle.print(line);
-            }
-            // While any job is still active, emit a silent tick so reedline
-            // repaints the prompt and the spinner advances.
-            if changed || !jobs.view().is_empty() {
-                let _ = printer_for_idle.print(REPAINT_TICK.to_string());
             }
         }))
 }

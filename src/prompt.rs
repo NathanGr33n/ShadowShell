@@ -21,6 +21,7 @@ use reedline::{Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchS
 
 use crate::config::Theme;
 use crate::live_jobs::{self, JobDashboardView, LiveJobStatus, LiveJobs};
+use crate::personality::PersonalityState;
 
 /// Braille spinner frames, cycled based on elapsed time while a git lookup
 /// is still pending.
@@ -38,6 +39,7 @@ pub struct ShellPrompt {
     git: Arc<Mutex<GitLookup>>,
     theme: Theme,
     live_jobs: Arc<LiveJobs>,
+    personality: Option<Arc<PersonalityState>>,
 }
 
 /// State of the background git status lookup.
@@ -54,7 +56,12 @@ enum GitLookup {
 impl ShellPrompt {
     /// Builds a new prompt snapshot for the current directory, kicking off
     /// an asynchronous git status lookup that does not block this call.
-    pub fn new(last_exit_code: i32, theme: Theme, live_jobs: Arc<LiveJobs>) -> Self {
+    pub fn new(
+        last_exit_code: i32,
+        theme: Theme,
+        live_jobs: Arc<LiveJobs>,
+        personality: Option<Arc<PersonalityState>>,
+    ) -> Self {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("?"));
         let home = env::var_os("HOME").map(PathBuf::from);
         let cwd_display = collapse_home(&cwd, home.as_deref());
@@ -66,6 +73,7 @@ impl ShellPrompt {
             git,
             theme,
             live_jobs,
+            personality,
         }
     }
 }
@@ -80,6 +88,12 @@ impl Prompt for ShellPrompt {
 
     fn render_prompt_right(&self) -> Cow<'_, str> {
         let mut parts = Vec::new();
+        if let Some(pers) = &self.personality {
+            let badge = render_personality_badge(&pers.profile().badge, &self.theme);
+            if !badge.is_empty() {
+                parts.push(badge);
+            }
+        }
         let jobs = render_jobs_segment(&self.live_jobs.view(), &self.theme);
         if !jobs.is_empty() {
             parts.push(jobs);
@@ -123,6 +137,13 @@ impl Prompt for ShellPrompt {
     }
 }
 
+
+fn render_personality_badge(badge: &str, theme: &Theme) -> String {
+    if badge.is_empty() {
+        return String::new();
+    }
+    format!("{}", badge.with(theme.cwd.to_crossterm()).bold())
+}
 
 /// Compact ambient job dashboard for the right prompt.
 ///
@@ -386,6 +407,7 @@ mod tests {
             git: Arc::new(Mutex::new(git)),
             theme: crate::config::theme_onedark(),
             live_jobs: Arc::new(LiveJobs::new()),
+            personality: None,
         }
     }
 
