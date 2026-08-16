@@ -3,6 +3,7 @@
 
 use std::process::{Command as ProcessCommand, Stdio};
 
+use crate::aliases;
 use crate::builtins::{self, BuiltinOutcome};
 use crate::expand::{expand_word_no_glob, expand_word_unsplit, expand_words};
 use crate::job_control::Shell;
@@ -13,7 +14,8 @@ use crate::parser::{
 
 /// Names of built-in commands recognized by the interpreter.
 const BUILTIN_NAMES: &[&str] = &[
-    "cd", "exit", "jobs", "fg", "bg", "export", "unset", "return", "shift", ":", "true", "false",
+    "cd", "exit", "jobs", "fg", "bg", "export", "unset", "return", "shift", "alias", "unalias",
+    ":", "true", "false",
 ];
 
 /// Outcome of interpreting a program or command.
@@ -99,10 +101,19 @@ fn interpret_pipeline(pipeline: &AstPipeline, shell: &mut Shell) -> InterpretOut
     for cmd in &pipeline.commands {
         match cmd {
             Command::Simple(simple) => {
-                let expanded = match expand_simple(simple, shell) {
+                let mut expanded = match expand_simple(simple, shell) {
                     Ok(e) => e,
                     Err(code) => return InterpretOutcome::Completed(code),
                 };
+                if !expanded.assignments_only {
+                    let (program, args) = aliases::expand_command_words(
+                        expanded.program,
+                        expanded.args,
+                        &shell.aliases,
+                    );
+                    expanded.program = program;
+                    expanded.args = args;
+                }
                 if expanded.program.is_empty() && expanded.assignments_only {
                     // assignment-only in a pipeline is odd; just apply and use true
                     apply_assignments(&expanded.assignments, shell, false);
@@ -223,10 +234,17 @@ fn apply_assignments(assignments: &[(String, String)], shell: &mut Shell, export
 }
 
 fn run_simple(simple: &AstSimpleCommand, shell: &mut Shell) -> InterpretOutcome {
-    let expanded = match expand_simple(simple, shell) {
+    let mut expanded = match expand_simple(simple, shell) {
         Ok(e) => e,
         Err(code) => return InterpretOutcome::Completed(code),
     };
+
+    if !expanded.assignments_only {
+        let (program, args) =
+            aliases::expand_command_words(expanded.program, expanded.args, &shell.aliases);
+        expanded.program = program;
+        expanded.args = args;
+    }
 
     if expanded.assignments_only {
         apply_assignments(&expanded.assignments, shell, false);
@@ -304,6 +322,8 @@ fn run_builtin(name: &str, args: &[String], shell: &mut Shell) -> InterpretOutco
     match name {
         "export" => InterpretOutcome::Completed(builtin_export(args, shell)),
         "unset" => InterpretOutcome::Completed(builtin_unset(args, shell)),
+        "alias" => InterpretOutcome::Completed(builtin_alias(args, shell)),
+        "unalias" => InterpretOutcome::Completed(builtin_unalias(args, shell)),
         "return" => builtin_return(args, shell),
         "shift" => InterpretOutcome::Completed(builtin_shift(args, shell)),
         ":" | "true" => {
@@ -334,6 +354,53 @@ fn run_builtin(name: &str, args: &[String], shell: &mut Shell) -> InterpretOutco
             None => InterpretOutcome::Completed(127),
         },
     }
+}
+
+fn builtin_alias(args: &[String], shell: &mut Shell) -> i32 {
+    if args.is_empty() {
+        let mut names: Vec<_> = shell.aliases.keys().cloned().collect();
+        names.sort();
+        for name in names {
+            if let Some(value) = shell.aliases.get(&name) {
+                println!("alias {name}='{value}'");
+            }
+        }
+        return 0;
+    }
+    for arg in args {
+        if let Some((name, value)) = arg.split_once('=') {
+            if !aliases::is_valid_alias_name(name) {
+                eprintln!("alias: `{name}': invalid alias name");
+                return 1;
+            }
+            shell.aliases.insert(name.to_string(), value.to_string());
+        } else if let Some(value) = shell.aliases.get(arg) {
+            println!("alias {arg}='{value}'");
+        } else {
+            eprintln!("alias: {arg}: not found");
+            return 1;
+        }
+    }
+    0
+}
+
+fn builtin_unalias(args: &[String], shell: &mut Shell) -> i32 {
+    if args.is_empty() {
+        eprintln!("unalias: usage: unalias name [name ...]");
+        return 1;
+    }
+    if args.len() == 1 && args[0] == "-a" {
+        shell.aliases.clear();
+        return 0;
+    }
+    let mut status = 0;
+    for name in args {
+        if shell.aliases.remove(name).is_none() {
+            eprintln!("unalias: {name}: not found");
+            status = 1;
+        }
+    }
+    status
 }
 
 fn builtin_export(args: &[String], shell: &mut Shell) -> i32 {
@@ -740,5 +807,35 @@ mod tests {
     fn case_statement() {
         assert_eq!(run("case foo in bar) false;; foo) true;; esac"), 0);
         assert_eq!(run("case foo in bar) true;; *) false;; esac"), 1);
+    }
+
+    #[test]
+    fn default_alias_ll_is_present() {
+        let shell = Shell::for_test();
+        assert_eq!(
+            shell.aliases.get("ll").map(String::as_str),
+            Some("ls -lah")
+        );
+    }
+
+    #[test]
+    fn alias_builtin_sets_and_lists() {
+        let (code, shell) = run_with("alias foo=echo", |_| {});
+        assert_eq!(code, 0);
+        assert_eq!(shell.aliases.get("foo").map(String::as_str), Some("echo"));
+    }
+
+    #[test]
+    fn unalias_removes() {
+        let (code, shell) = run_with("unalias ll", |_| {});
+        assert_eq!(code, 0);
+        assert!(!shell.aliases.contains_key("ll"));
+    }
+
+    #[test]
+    fn alias_expands_before_execution() {
+        // true is a built-in; alias t=true then t should succeed
+        assert_eq!(run("alias t=true; t"), 0);
+        assert_eq!(run("alias f=false; f"), 1);
     }
 }
