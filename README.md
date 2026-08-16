@@ -32,6 +32,30 @@ Script:
 cargo run -- path/to/script.sh arg1 arg2
 ```
 
+## Directory personality
+
+The shell lightly adapts when you enter a recognized project tree (walks
+parents for marker files like `Cargo.toml`, `package.json`, `go.mod`, …):
+
+- **Prompt accent** — cwd color shifts to a project tint; a small badge
+  (`rs`, `js`, `py`, `go`, …) appears on the right
+- **Temporary aliases** — e.g. Rust: `b`/`t`/`r` → cargo build/test/run
+- **Tab-complete priority** — project tools sort first
+
+Leaving the tree reverts accents and removes only the aliases the shell
+injected (your own `alias` definitions are never overwritten).
+
+Configure accents and extra aliases in `config.toml`:
+
+```toml
+[personality]
+enabled = true
+
+[personality.rust]
+accent = [222, 163, 90]
+# aliases = { b = "cargo build --release" }
+```
+
 ## Live job dashboard
 
 When jobs are backgrounded (`cmd &`) or stopped (Ctrl+Z), the right side of
