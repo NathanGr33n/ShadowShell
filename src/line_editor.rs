@@ -22,9 +22,12 @@ struct ShellValidator;
 
 impl Validator for ShellValidator {
     fn validate(&self, line: &str) -> ValidationResult {
-        match parser::parse_line(line) {
-            Err(_) => ValidationResult::Incomplete,
-            Ok(_) => ValidationResult::Complete,
+        // Prefer the full program parser so open compounds (`if`/`for`/…)
+        // keep the multiline prompt open; only Incomplete-class errors
+        // should block submission.
+        match parser::parse_program(line) {
+            Err(err) if err.is_incomplete() => ValidationResult::Incomplete,
+            Err(_) | Ok(_) => ValidationResult::Complete,
         }
     }
 }
