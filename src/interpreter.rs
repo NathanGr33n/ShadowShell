@@ -5,6 +5,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use crate::aliases;
 use crate::builtins::{self, BuiltinOutcome};
+use crate::help;
 use crate::expand::{expand_word_no_glob, expand_word_unsplit, expand_words};
 use crate::job_control::Shell;
 use crate::parser::{
@@ -15,7 +16,7 @@ use crate::parser::{
 /// Names of built-in commands recognized by the interpreter.
 const BUILTIN_NAMES: &[&str] = &[
     "cd", "exit", "jobs", "fg", "bg", "export", "unset", "return", "shift", "alias", "unalias",
-    ":", "true", "false",
+    "help", ":", "true", "false",
 ];
 
 /// Outcome of interpreting a program or command.
@@ -297,6 +298,9 @@ fn run_simple(simple: &AstSimpleCommand, shell: &mut Shell) -> InterpretOutcome 
     };
     let line = expanded.display_line();
     let code = shell.run_pipeline(&legacy, &line);
+    if code == 127 {
+        suggest_similar(&expanded.program, shell);
+    }
 
     // Restore previous values for prefix assignments.
     for (name, prev, was_exported) in saved {
@@ -324,6 +328,11 @@ fn run_builtin(name: &str, args: &[String], shell: &mut Shell) -> InterpretOutco
         "unset" => InterpretOutcome::Completed(builtin_unset(args, shell)),
         "alias" => InterpretOutcome::Completed(builtin_alias(args, shell)),
         "unalias" => InterpretOutcome::Completed(builtin_unalias(args, shell)),
+        "help" => {
+            let code = help::run_help(args);
+            shell.env.set_last_status(code);
+            InterpretOutcome::Completed(code)
+        }
         "return" => builtin_return(args, shell),
         "shift" => InterpretOutcome::Completed(builtin_shift(args, shell)),
         ":" | "true" => {
@@ -694,6 +703,66 @@ fn trim_trailing_newlines(s: &str) -> String {
         end -= 1;
     }
     s[..end].to_string()
+}
+
+fn suggest_similar(name: &str, shell: &Shell) {
+    let mut candidates: Vec<String> = BUILTIN_NAMES.iter().map(|s| (*s).to_string()).collect();
+    candidates.extend(shell.aliases.keys().cloned());
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let Ok(rd) = std::fs::read_dir(dir) else { continue };
+            for ent in rd.flatten() {
+                if let Some(n) = ent.file_name().to_str() {
+                    if n.starts_with(name.chars().next().unwrap_or('\0')) {
+                        candidates.push(n.to_string());
+                    }
+                }
+            }
+        }
+    }
+    candidates.sort();
+    candidates.dedup();
+    let mut scored: Vec<_> = candidates
+        .into_iter()
+        .filter_map(|c| {
+            let d = edit_distance(name, &c);
+            if d > 0 && d <= 2 {
+                Some((d, c))
+            } else {
+                None
+            }
+        })
+        .collect();
+    scored.sort_by_key(|(d, c)| (*d, c.clone()));
+    if let Some((_, suggestion)) = scored.first() {
+        eprintln!("shadowshell: did you mean `{suggestion}`?");
+    }
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    if n.abs_diff(m) > 2 {
+        return 3;
+    }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut cur = vec![0; m + 1];
+    for i in 1..=n {
+        cur[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[m]
 }
 
 fn is_builtin(name: &str) -> bool {
