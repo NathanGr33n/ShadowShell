@@ -7,7 +7,6 @@ mod builtins;
 mod completer;
 mod config;
 mod env;
-mod executor;
 mod expand;
 mod highlighter;
 mod interpreter;
