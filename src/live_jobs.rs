@@ -9,7 +9,7 @@
 use std::sync::Mutex;
 use std::time::Instant;
 
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::Pid;
 
 use crate::jobs::{JobStatus, JobTable};

@@ -191,7 +191,10 @@ mod tests {
 
     #[test]
     fn expand_tilde_without_home_is_unchanged() {
-        assert_eq!(expand_tilde_with_home("~/projects", None), PathBuf::from("~/projects"));
+        assert_eq!(
+            expand_tilde_with_home("~/projects", None),
+            PathBuf::from("~/projects")
+        );
     }
 
     #[test]

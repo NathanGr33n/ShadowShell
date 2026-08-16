@@ -18,12 +18,12 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::sync::Arc;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 
 use nix::sys::signal::{self, SigHandler, Signal};
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::{self, Pid};
 
 use crate::aliases;
@@ -229,7 +229,10 @@ impl Shell {
             .or_else(|| self.jobs.most_recent_active_id())
             .ok_or_else(|| "no such job".to_string())?;
         let (pgid, pids, command_line) = {
-            let job = self.jobs.get(id).ok_or_else(|| format!("{id}: no such job"))?;
+            let job = self
+                .jobs
+                .get(id)
+                .ok_or_else(|| format!("{id}: no such job"))?;
             (job.pgid, job.pids.clone(), job.command_line.clone())
         };
 
@@ -578,7 +581,7 @@ mod tests {
         assert!(shell.resume_job(Some(999), true).is_err());
     }
 
-#[test]
+    #[test]
     fn missing_redirect_target_reports_error_without_spawning() {
         let dir = std::env::temp_dir();
         let missing = dir.join("shadowshell-test-does-not-exist-dir/out.txt");
@@ -597,11 +600,8 @@ mod tests {
             .export("SHADOWSHELL_TEST_EXPORT", Some("from-shell".into()));
 
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "shadowshell-env-test-{}.txt",
-            std::process::id()
-        ));
-let line = format!(
+        let path = dir.join(format!("shadowshell-env-test-{}.txt", std::process::id()));
+        let line = format!(
             "sh -c 'printf %s \"${{SHADOWSHELL_TEST_EXPORT}}\"' > {}",
             path.display()
         );
@@ -623,11 +623,8 @@ let line = format!(
         shell.env.set("SHADOWSHELL_TEST_LOCAL", "secret");
 
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "shadowshell-env-local-{}.txt",
-            std::process::id()
-        ));
-let line = format!(
+        let path = dir.join(format!("shadowshell-env-local-{}.txt", std::process::id()));
+        let line = format!(
             "sh -c 'printf %s \"${{SHADOWSHELL_TEST_LOCAL}}\"' > {}",
             path.display()
         );

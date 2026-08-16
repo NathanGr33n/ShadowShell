@@ -190,10 +190,16 @@ impl fmt::Display for ParseError {
             ParseError::TrailingBackslash => write!(f, "syntax error: trailing backslash"),
             ParseError::EmptyPipelineSegment => write!(f, "syntax error: empty command near `|'"),
             ParseError::MissingRedirectTarget => {
-                write!(f, "syntax error: expected a file name after redirection operator")
+                write!(
+                    f,
+                    "syntax error: expected a file name after redirection operator"
+                )
             }
             ParseError::MisplacedBackground => {
-                write!(f, "syntax error: `&' must appear only at the end of a pipeline")
+                write!(
+                    f,
+                    "syntax error: `&' must appear only at the end of a pipeline"
+                )
             }
             ParseError::Unexpected(msg) => write!(f, "syntax error: {msg}"),
         }
@@ -555,7 +561,7 @@ impl Parser {
         }
     }
 
-fn parse_program(&mut self) -> Result<Program, ParseError> {
+    fn parse_program(&mut self) -> Result<Program, ParseError> {
         self.skip_newlines();
         let mut lists = Vec::new();
         while self.peek().is_some() && !self.at_list_terminator() {
@@ -640,7 +646,7 @@ fn parse_program(&mut self) -> Result<Program, ParseError> {
         Ok(AndOrList { first, rest })
     }
 
-fn parse_pipeline(&mut self) -> Result<AstPipeline, ParseError> {
+    fn parse_pipeline(&mut self) -> Result<AstPipeline, ParseError> {
         // A leading `|` has no left-hand command.
         if matches!(self.peek(), Some(Token::Pipe)) {
             return Err(ParseError::EmptyPipelineSegment);
@@ -889,10 +895,14 @@ fn parse_pipeline(&mut self) -> Result<AstPipeline, ParseError> {
                 if matches!(self.peek(), Some(Token::Semi)) {
                     self.bump();
                 } else if !self.peek_keyword("esac") {
-                    return Err(ParseError::Unexpected("expected `;;' after case arm".into()));
+                    return Err(ParseError::Unexpected(
+                        "expected `;;' after case arm".into(),
+                    ));
                 }
             } else if !self.peek_keyword("esac") {
-                return Err(ParseError::Unexpected("expected `;;' after case arm".into()));
+                return Err(ParseError::Unexpected(
+                    "expected `;;' after case arm".into(),
+                ));
             }
             self.skip_newlines();
             arms.push(CaseArm { patterns, body });
@@ -911,21 +921,17 @@ fn parse_pipeline(&mut self) -> Result<AstPipeline, ParseError> {
             match self.peek().cloned() {
                 Some(Token::Word(w)) => {
                     self.bump();
-                    if !saw_word {
-                        if let Some((name, value)) = split_assignment(&w) {
-                            assignments.push(Assignment { name, value });
-                            continue;
-                        }
+                    if !saw_word
+                        && let Some((name, value)) = split_assignment(&w)
+                    {
+                        assignments.push(Assignment { name, value });
+                        continue;
                     }
                     saw_word = true;
                     words.push(w);
                 }
                 Some(
-                    Token::Less
-                    | Token::Great
-                    | Token::DGreat
-                    | Token::ErrGreat
-                    | Token::ErrDGreat,
+                    Token::Less | Token::Great | Token::DGreat | Token::ErrGreat | Token::ErrDGreat,
                 ) => {
                     let kind = match self.bump() {
                         Some(Token::Less) => RedirectKind::Stdin,
@@ -1020,12 +1026,7 @@ fn split_assignment(word: &Word) -> Option<(String, Word)> {
     if value_parts.is_empty() {
         value_parts.push(WordPart::Unquoted(String::new()));
     }
-    Some((
-        name.to_string(),
-        Word {
-            parts: value_parts,
-        },
-    ))
+    Some((name.to_string(), Word { parts: value_parts }))
 }
 
 // ===========================================================================
@@ -1314,7 +1315,10 @@ mod tests {
         let err = parse_program("if true; then echo ok").unwrap_err();
         assert!(err.is_incomplete() || matches!(err, ParseError::Unexpected(_)));
         // missing fi → Incomplete when EOF mid-construct
-        assert_eq!(parse_program("if true; then").unwrap_err(), ParseError::Incomplete);
+        assert_eq!(
+            parse_program("if true; then").unwrap_err(),
+            ParseError::Incomplete
+        );
     }
 
     #[test]

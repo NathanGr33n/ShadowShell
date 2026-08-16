@@ -22,7 +22,6 @@ pub enum ProjectKind {
     CMake,
 }
 
-
 /// Built-in personality for a project kind.
 #[derive(Debug, Clone)]
 pub struct PersonalityProfile {
@@ -142,7 +141,7 @@ impl PersonalityState {
         true
     }
 
-/// Applies this profile's accent onto a base theme (cwd + light spinner tint).
+    /// Applies this profile's accent onto a base theme (cwd + light spinner tint).
     pub fn effective_theme(&self, base: &Theme) -> Theme {
         let profile = self.profile();
         apply_accent(base, profile.kind, profile.accent)
@@ -359,10 +358,7 @@ fn blend(a: Rgb, b: Rgb, t: f32) -> Rgb {
 ///   (user overrides stick).
 /// - Inserts new personality aliases only when the name is free or still holds
 ///   the old injected value.
-pub fn reconcile_aliases(
-    shell_aliases: &mut HashMap<String, String>,
-    state: &PersonalityState,
-) {
+pub fn reconcile_aliases(shell_aliases: &mut HashMap<String, String>, state: &PersonalityState) {
     let profile = state.profile();
     let mut next_injected = HashSet::new();
     let mut next_values: HashMap<String, String> = HashMap::new();

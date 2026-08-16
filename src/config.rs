@@ -215,9 +215,7 @@ fn merge_file(mut base: Config, file: FileConfig) -> Config {
             "nord" => theme_nord(),
             "onedark" => theme_onedark(),
             other => {
-                eprintln!(
-                    "shadowshell: warning: unknown theme `{other}`, using onedark"
-                );
+                eprintln!("shadowshell: warning: unknown theme `{other}`, using onedark");
                 theme_onedark()
             }
         };
@@ -372,12 +370,14 @@ impl FirstRun {
     /// Marks the welcome banner as shown so it is not repeated.
     pub fn mark_welcome_shown(self) {
         if let FirstRun::Fresh { welcome_flag } = self {
-            let _ = fs::write(welcome_flag, b"1
-");
+            let _ = fs::write(
+                welcome_flag,
+                b"1
+",
+            );
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -454,4 +454,3 @@ mod tests {
         assert_eq!(cfg.theme.name, "onedark");
     }
 }
-

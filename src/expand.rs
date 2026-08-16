@@ -157,7 +157,7 @@ fn expand_in_string(
                 chars.next();
                 let mut depth = 1;
                 let mut body = String::new();
-                while let Some(ch) = chars.next() {
+                for ch in chars.by_ref() {
                     if ch == '(' {
                         depth += 1;
                         body.push(ch);
@@ -197,7 +197,7 @@ fn expand_in_string(
                 }
                 out.push_str(&resolve_param(&name, env));
             }
-            Some(c) if matches!(c, '?' | '#' | '$' | '!' | '-' | '*') => {
+            Some('?' | '#' | '$' | '!' | '-' | '*') => {
                 let name = chars.next().unwrap().to_string();
                 out.push_str(&resolve_param(&name, env));
             }

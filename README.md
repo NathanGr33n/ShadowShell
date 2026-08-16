@@ -8,7 +8,8 @@ the box.
 
 ```bash
 # From this repo
-cargo install --path . --locked
+./install.sh
+# or: cargo install --path . --locked
 
 # Run
 shadowshell
@@ -24,6 +25,7 @@ Try inside the shell:
 | `sleep 3 &` | Job badge on the right prompt |
 | Tab | Completions |
 | Right arrow | Accept autosuggestion |
+| `which gs` | Resolve alias / builtin / PATH |
 
 ```bash
 shadowshell --help
@@ -106,6 +108,16 @@ POSIX-style variables, control flow, functions, pipelines, redirection.
 ```bash
 cargo test
 ```
+
+## Docs
+
+- [User guide](docs/user-guide.md) — install, keys, jobs, config, personality
+- In-shell: `help`, `help <topic>`
+- Example config: [`config.toml.example`](config.toml.example)
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Platform
 

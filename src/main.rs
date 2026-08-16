@@ -27,7 +27,7 @@ use std::process::ExitCode;
 use reedline::Signal;
 
 use config::FirstRun;
-use interpreter::{interpret, InterpretOutcome};
+use interpreter::{InterpretOutcome, interpret};
 use job_control::Shell;
 use prompt::ShellPrompt;
 
@@ -253,10 +253,7 @@ fn to_exit_code(code: i32) -> ExitCode {
 
 /// Detect project type for the current directory and reconcile temporary
 /// personality aliases. Theme accent is applied when building the prompt.
-fn apply_directory_personality(
-    shell: &mut Shell,
-    personality: &personality::PersonalityState,
-) {
+fn apply_directory_personality(shell: &mut Shell, personality: &personality::PersonalityState) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let _changed = personality.update_for_cwd(&cwd);
     personality::reconcile_aliases(&mut shell.aliases, personality);
@@ -268,8 +265,14 @@ mod cli_tests {
 
     #[test]
     fn parse_help_flags() {
-        assert!(matches!(parse_args(vec!["--help".into()]).unwrap(), Invocation::Help));
-        assert!(matches!(parse_args(vec!["-h".into()]).unwrap(), Invocation::Help));
+        assert!(matches!(
+            parse_args(vec!["--help".into()]).unwrap(),
+            Invocation::Help
+        ));
+        assert!(matches!(
+            parse_args(vec!["-h".into()]).unwrap(),
+            Invocation::Help
+        ));
     }
 
     #[test]
