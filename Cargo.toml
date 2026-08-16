@@ -2,6 +2,12 @@
 name = "shadowshell"
 version = "0.1.0"
 edition = "2024"
+description = "A modern, batteries-included Unix shell for developers"
+license = "MIT"
+readme = "README.md"
+keywords = ["shell", "cli", "terminal"]
+categories = ["command-line-utilities"]
+repository = "https://github.com/NathanGr33n/ShadowShell"
 
 [dependencies]
 crossterm = "0.29.0"

@@ -43,6 +43,7 @@ impl ShellCompleter {
             "shift".into(),
             "alias".into(),
             "unalias".into(),
+            "help".into(),
             "true".into(),
             "false".into(),
         ];

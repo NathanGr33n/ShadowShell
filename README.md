@@ -1,98 +1,66 @@
 # ShadowShell
 
-A modern Unix shell built from scratch in Rust.
+A modern, batteries-included Unix shell for developers (Linux/macOS) — fish-like
+editing, git/cargo aliases, project-aware colors, and a live jobs badge out of
+the box.
 
-## Status
+## Quick start
 
-Phase 6 (polish): history-based autosuggestions, command-line syntax
-highlighting, tab completion (files/dirs and `$PATH` executables), and a TOML
-config/theme system (`~/.config/shadowshell/config.toml`) with built-in
-`onedark` and `nord` themes. A live job dashboard in the prompt shows an
-ambient spinner/badge for background and stopped jobs. Earlier phases cover
-the core loop, line editing, job control/pipelines, the animated prompt, and
-POSIX-style scripting.
+```bash
+# From this repo
+cargo install --path . --locked
 
-## Build
-
-```
-cargo build
+# Run
+shadowshell
 ```
 
-## Run
+Try inside the shell:
 
-Interactive:
+| Try | What happens |
+|-----|----------------|
+| `help` | Topics and tips |
+| `ll` | Alias → `ls -lah` |
+| `gs` | Alias → `git status` |
+| `sleep 3 &` | Job badge on the right prompt |
+| Tab | Completions |
+| Right arrow | Accept autosuggestion |
 
-```
-cargo run
-```
-
-Script:
-
-```
-cargo run -- path/to/script.sh arg1 arg2
-```
-
-## Directory personality
-
-The shell lightly adapts when you enter a recognized project tree (walks
-parents for marker files like `Cargo.toml`, `package.json`, `go.mod`, …):
-
-- **Prompt accent** — cwd color shifts to a project tint; a small badge
-  (`rs`, `js`, `py`, `go`, …) appears on the right
-- **Temporary aliases** — e.g. Rust: `b`/`t`/`r` → cargo build/test/run
-- **Tab-complete priority** — project tools sort first
-
-Leaving the tree reverts accents and removes only the aliases the shell
-injected (your own `alias` definitions are never overwritten).
-
-Configure accents and extra aliases in `config.toml`:
-
-```toml
-[personality]
-enabled = true
-
-[personality.rust]
-accent = [222, 163, 90]
-# aliases = { b = "cargo build --release" }
+```bash
+shadowshell --help
+shadowshell --version
+shadowshell -c 'echo hi'
+shadowshell script.sh args...
 ```
 
-## Live job dashboard
+### Optional: default shell
 
-When jobs are backgrounded (`cmd &`) or stopped (Ctrl+Z), the right side of
-the prompt shows an ambient indicator that updates while you type or idle:
+```bash
+# Ensure the binary is on your PATH (cargo install uses ~/.cargo/bin)
+which shadowshell
 
-- one running job — spinner + truncated command (`⠋ sleep 30`)
-- multiple jobs — counts (`⠋×2 ⏸×1`)
-- stopped job — pause badge (`⏸ [1] vim`)
-
-Finished background jobs still print the usual `[n]+ Done …` line (including
-while the line editor is waiting for input).
-
-## Default aliases
-
-Developer-oriented shortcuts are enabled out of the box, including:
-
-| Alias | Expands to |
-|-------|------------|
-| `ll` | `ls -lah` |
-| `la` | `ls -A` |
-| `..` | `cd ..` |
-| `gs` / `ga` / `gc` / `gp` / `gl` | git status/add/commit/push/pull |
-| `cb` / `ct` / `cr` | cargo build/test/run |
-| `glog` | `git log --oneline --graph --decorate` |
-
-Manage them interactively:
-
-```
-alias                  # list all
-alias foo='echo hi'    # define / override
-unalias foo            # remove one
-unalias -a             # clear all
+# Add to valid login shells (once, system-wide)
+echo "$(which shadowshell)" | sudo tee -a /etc/shells
+chsh -s "$(which shadowshell)"
 ```
 
-## Config
+Or try without changing login shell: run `shadowshell` from your current terminal.
 
-Optional file: `~/.config/shadowshell/config.toml`
+## Install (developers)
+
+```bash
+cargo build --release
+./target/release/shadowshell
+# or
+cargo install --path . --locked
+```
+
+## Configuration
+
+On first interactive run, ShadowShell creates:
+
+`~/.config/shadowshell/config.toml`
+
+(from `config.toml.example` in this repo). Edit themes, colors, and personality:
 
 ```toml
 theme = "onedark"          # or "nord"
@@ -101,17 +69,44 @@ autosuggestions = true
 syntax_highlighting = true
 tab_completion = true
 
-# Optional per-color RGB overrides:
-# [colors]
-# cwd = [97, 175, 239]
-# success = [152, 195, 121]
-# failure = [224, 108, 117]
+[personality]
+enabled = true
+
+[personality.rust]
+accent = [222, 163, 90]
 ```
 
-Malformed config falls back to defaults with a warning.
+Malformed config falls back to defaults with a warning. In-shell: `help config`.
+
+## Features
+
+### Line editing
+History, Ctrl+R search, multiline input, autosuggestions, syntax highlighting,
+Tab completion. See `help keys`.
+
+### Default aliases
+`ll`, `la`, git (`gs`/`ga`/`gc`/…), cargo (`cb`/`ct`/`cr`), and more.
+`alias` / `unalias` to manage. See `help aliases`.
+
+### Live job dashboard
+Background (`&`) and stopped (Ctrl+Z) jobs show an ambient badge on the right
+prompt; Done lines print when jobs finish (including while idle). See `help jobs`.
+
+### Directory personality
+Entering a project tree (`Cargo.toml`, `package.json`, `go.mod`, …) shifts the
+prompt accent, may add temporary aliases, and prioritizes related Tab completions.
+See `help personality`.
+
+### Scripting
+POSIX-style variables, control flow, functions, pipelines, redirection.
+`shadowshell script.sh` or `shadowshell -c '…'`. See `help scripting`.
 
 ## Test
 
-```
+```bash
 cargo test
 ```
+
+## Platform
+
+Linux and macOS only. Not a full bash replacement — advanced scripting may differ.

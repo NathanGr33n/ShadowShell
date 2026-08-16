@@ -14,7 +14,7 @@ use crate::config::Theme;
 
 /// Built-in command names highlighted as valid even without a PATH entry.
 const BUILTINS: &[&str] = &[
-    "cd", "exit", "jobs", "fg", "bg", "export", "unset", "return", "shift", "alias", "unalias", ":", "true", "false",
+    "cd", "exit", "jobs", "fg", "bg", "export", "unset", "return", "shift", "alias", "unalias", "help", ":", "true", "false",
 ];
 
 /// Highlights buffer text using the active theme and a cached PATH index.

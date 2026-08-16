@@ -313,6 +313,72 @@ pub fn config_file_path() -> Option<PathBuf> {
     })
 }
 
+/// Directory containing user config: `~/.config/shadowshell`.
+pub fn config_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| Path::new(&home).join(".config").join("shadowshell"))
+}
+
+/// Ensures the config directory exists and seeds `config.toml` from the
+/// embedded example when the file is missing. Returns whether this looks
+/// like a first interactive run (welcome flag not yet written).
+pub fn ensure_user_config() -> FirstRun {
+    let Some(dir) = config_dir() else {
+        return FirstRun::Skipped;
+    };
+    if let Err(err) = fs::create_dir_all(&dir) {
+        eprintln!(
+            "shadowshell: warning: could not create config dir {}: {err}",
+            dir.display()
+        );
+        return FirstRun::Skipped;
+    }
+
+    let config_path = dir.join("config.toml");
+    if !config_path.exists() {
+        const EXAMPLE: &str = include_str!("../config.toml.example");
+        if let Err(err) = fs::write(&config_path, EXAMPLE) {
+            eprintln!(
+                "shadowshell: warning: could not write {}: {err}",
+                config_path.display()
+            );
+        } else {
+            eprintln!(
+                "shadowshell: wrote default config to {}",
+                config_path.display()
+            );
+        }
+    }
+
+    let welcome_flag = dir.join(".welcome_shown");
+    if welcome_flag.exists() {
+        FirstRun::Returning
+    } else {
+        FirstRun::Fresh { welcome_flag }
+    }
+}
+
+/// Outcome of [`ensure_user_config`].
+#[derive(Debug)]
+pub enum FirstRun {
+    /// `$HOME` unset or config dir unusable.
+    Skipped,
+    /// Welcome already shown previously.
+    Returning,
+    /// First interactive session; caller should show welcome then mark done.
+    Fresh { welcome_flag: PathBuf },
+}
+
+impl FirstRun {
+    /// Marks the welcome banner as shown so it is not repeated.
+    pub fn mark_welcome_shown(self) {
+        if let FirstRun::Fresh { welcome_flag } = self {
+            let _ = fs::write(welcome_flag, b"1
+");
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,3 +454,4 @@ mod tests {
         assert_eq!(cfg.theme.name, "onedark");
     }
 }
+
